@@ -1,0 +1,2 @@
+# พื้นฐาน (Baseline / Water Balance ใช้แค่ Python มาตรฐาน)
+# เพิ่มทีละโมเดลเมื่อเริ่มทำ เช่น lightgbm, statsmodels, chronos-forecasting

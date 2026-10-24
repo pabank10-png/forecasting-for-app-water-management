@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ข้อมูลไม่เก็บใน repo นี้ (Public) อ่านจาก pilot/forecasting หรือ Supabase
+*.csv
+*.xlsx
+*.parquet
+data/
+results/
+.DS_Store
