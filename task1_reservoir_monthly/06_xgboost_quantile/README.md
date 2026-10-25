@@ -3,7 +3,7 @@
 - กลุ่ม: Machine Learning (Gradient-Boosted Trees)
 - ทำอะไร: ตัวเทียบของ LightGBM
 - ข้อมูลที่ใช้: ชีต LAG
-- สถานะ: ยังไม่เริ่ม
+- สถานะ: ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว
 
 ## หลักการ
 เหมือน LightGBM คือ Gradient boosting ของ Decision tree แต่ XGBoost สร้างต้นไม้แบบทีละชั้นเท่ากันทั้งต้น (level-wise) และมี Regularization ลงโทษใบไม้ที่มีค่ามาก ทำให้ผลต่างจาก LightGBM เล็กน้อย จึงเก็บไว้ช่วยใน Ensemble

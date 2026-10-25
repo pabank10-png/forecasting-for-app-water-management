@@ -1,2 +1,15 @@
-# พื้นฐาน (Baseline / Water Balance ใช้แค่ Python มาตรฐาน)
-# เพิ่มทีละโมเดลเมื่อเริ่มทำ เช่น lightgbm, statsmodels, chronos-forecasting
+# ทุกโมเดลที่ทดสอบแล้ว (Baseline, Statistics, Machine Learning, Deep Learning, Hydrology)
+numpy>=2.0
+pandas>=2.2
+scipy>=1.13
+statsmodels>=0.14
+lightgbm>=4.3
+xgboost>=2.1
+torch>=2.3
+
+# ทางเลือก
+# numba                     # GR4J / HBV เร็วขึ้นหลายเท่า
+# chronos-forecasting>=2.0  # Chronos-2 (Foundation Model)
+# timesfm                   # TimesFM 2.5
+# uni2ts                    # Moirai
+# pysteps                   # Radar nowcast รุ่น pySTEPS

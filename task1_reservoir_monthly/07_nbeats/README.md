@@ -3,7 +3,7 @@
 - กลุ่ม: Deep Learning (Neural Network)
 - ทำอะไร: แยก trend และฤดูกาลจากอดีต
 - ข้อมูลที่ใช้: inflow (+ exog)
-- สถานะ: ยังไม่เริ่ม
+- สถานะ: ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว
 
 ## หลักการ
 Deep Learning แบบ Neural network หลายชั้นเรียงกันเป็น block รับ inflow ย้อนหลัง (เช่น 24 เดือน) แล้วแต่ละ block ทำ 2 อย่าง: ส่งส่วนที่อธิบายได้ไปเป็นพยากรณ์ และลบส่วนนั้นออกจาก input ส่งที่เหลือ (residual) ให้ block ถัดไป แบบ interpretable จะแยกเป็น block แนวโน้ม (trend) และ block ฤดูกาล (seasonality)

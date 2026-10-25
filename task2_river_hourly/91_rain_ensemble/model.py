@@ -1,9 +1,52 @@
-"""Ensemble ฝนพยากรณ์หลายโมเดล (Post-processing). ยังไม่เริ่ม ดู README.md"""
+"""Run one river model once per forecast-rain source (ECMWF, GFS, ICON, JMA, TMD) and combine.
+
+    m = Model(base="05_lightgbm", upstream=("up1",)).fit(df)
+    fc = m.predict(df, 48, {"ECMWF": fut1, "GFS": fut2, ...})   # one future frame per source
+    m.exceed_probability(bank_level)                            # chance the level passes the bank
+
+Weights: inverse MAE of each source's past forecasts (set_source_mae), else equal.
+P10 / P90 = the widest of (weighted P10/P90, spread of the sources' P50).
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import numpy as np
+
+from common import ensemble
+from common.base import result
+from common.registry import load
+
+TASK = "task2_river_hourly"
 
 
-def fit(train):
-    raise NotImplementedError
+class Model:
+    def __init__(self, base="05_lightgbm", shrink=0.5, **base_kw):
+        self.base = base if not isinstance(base, str) else load(f"{TASK}/{base}").Model(**base_kw)
+        self.shrink, self.source_mae = shrink, None
 
+    def set_source_mae(self, maes):
+        self.source_mae = maes
+        return self
 
-def predict(model, history, horizon):
-    raise NotImplementedError
+    def fit(self, df):
+        self.base.fit(df)
+        return self
+
+    def predict(self, df, horizon=48, future=None):
+        if not isinstance(future, dict):
+            return self.base.predict(df, horizon, future)
+        self.members = {s: self.base.predict(df, horizon, f) for s, f in future.items()}
+        self.weights = ensemble.inverse_mae_weights({s: self.source_mae[s] for s in self.members}, self.shrink) \
+            if self.source_mae else {s: 1 / len(self.members) for s in self.members}
+        c = ensemble.combine(self.members, self.weights)
+        p50s = np.array([m["p50"].to_numpy() for m in self.members.values()])
+        lo = np.minimum(c["p10"].to_numpy(), p50s.min(0))
+        hi = np.maximum(c["p90"].to_numpy(), p50s.max(0))
+        return result(lo, c["p50"], hi, floor=None)
+
+    def exceed_probability(self, bank_level):
+        """Weighted share of rain sources whose P50 peak passes the bank (or watch) level."""
+        peak = {s: float(m["p50"].max()) for s, m in self.members.items()}
+        return ensemble.exceed_probability(peak, self.weights, bank_level)

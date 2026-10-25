@@ -7,6 +7,8 @@ import csv
 import os
 from pathlib import Path
 
+import pandas as pd
+
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_DIR = REPO.parent / "pilot" / "forecasting" / "1-reservoir-inflow" / "data" / "csv"
 RESERVOIRS = ("DK", "KY", "NPL", "THREE", "PS")
@@ -45,3 +47,22 @@ def monthly_inflow(reservoir):
     """[(date 'YYYY-MM-DD', month 1..12, inflow_mcm or None, is_partial)] for every month; inflow is None for a partial month."""
     return [(r["date"], int(r["month"]), r["target_inflow_mcm"], r["is_partial_month"])
             for r in lag_table(reservoir)]
+
+
+def monthly_frame(reservoir):
+    """LAG table as a DataFrame with y = monthly inflow (MCM); the partial current month has y empty."""
+    df = pd.read_csv(data_dir() / "lag.csv", encoding="utf-8-sig", parse_dates=["date"])
+    df = df[df["reservoir"] == reservoir].sort_values("date").reset_index(drop=True)
+    return df.rename(columns={"target_inflow_mcm": "y"})
+
+
+def daily_frame(reservoir):
+    """Daily table: y = inflow (MCM/day, RID where present else dam workbook), rain, storage, outflow."""
+    df = pd.read_csv(data_dir() / f"daily_{reservoir}.csv", encoding="utf-8-sig", parse_dates=["date"])
+    out = pd.DataFrame({"date": df["date"]})
+    out["y"] = df["inflow_mcm_rid"].fillna(df["inflow_mcm_dam"])
+    out["rain"] = df["rain_mm"]
+    out["storage"] = df["storage_mcm"]
+    dam_out = df["outlet_mcm_dam"].fillna(0) + df["spillway_mcm_dam"].fillna(0)
+    out["outflow"] = df["outflow_mcm_rid"].fillna(dam_out.where(df["outlet_mcm_dam"].notna()))
+    return out.sort_values("date").reset_index(drop=True)

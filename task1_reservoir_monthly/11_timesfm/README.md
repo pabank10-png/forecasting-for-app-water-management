@@ -3,7 +3,7 @@
 - กลุ่ม: Deep Learning (Foundation Model)
 - ทำอะไร: foundation model อีกค่าย ให้ quantile
 - ข้อมูลที่ใช้: inflow
-- สถานะ: ยังไม่เริ่ม
+- สถานะ: เขียนโค้ดแล้ว ยังไม่ได้ทดสอบ (ต้องติดตั้ง torch + แพ็กเกจของโมเดล และโหลด weights)
 
 ## หลักการ
 Foundation model ของ Google ตัดอนุกรมเวลาเป็นท่อนๆ (patch) เช่นท่อนละ 32 ค่า แล้วให้ Transformer แบบ decoder-only ทำนายท่อนถัดไป เหมือนเดาคำถัดไปในประโยค ใช้แบบ zero-shot
