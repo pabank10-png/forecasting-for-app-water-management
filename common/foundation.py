@@ -53,26 +53,43 @@ def chronos2(df, horizon, future=None, covariates=(), freq="MS", model_id="amazo
     return result(q[:, 0], q[:, 1], q[:, 2])
 
 
-def timesfm(df, horizon, model_id="google/timesfm-2.5-200m-pytorch", max_context=1024):
-    """TimesFM 2.5 forecast (univariate). Its quantile head returns mean + deciles 0.1..0.9."""
+def timesfm(df, horizon, model_id="google/timesfm-2.5-200m-pytorch", max_context=1024, covariates=()):
+    """TimesFM 2.5 forecast. Its quantile head returns mean + deciles 0.1..0.9.
+
+    covariates: lag-type columns (known at the start of each month). TimesFM fits an
+    in-context linear regression on them ("xreg + timesfm") and forecasts the rest;
+    values for the forecast steps come from fill_future.
+    """
     import timesfm as tf
-    key = (model_id, max_context, horizon)
+    from .features import fill_future
+    key = (model_id, max_context, horizon, bool(covariates))
     model = _CACHE.get(key)
     if model is None:
         model = tf.TimesFM_2p5_200M_torch.from_pretrained(model_id)
         model.compile(tf.ForecastConfig(max_context=max_context, max_horizon=max(horizon, 16),
                                         normalize_inputs=True, use_continuous_quantile_head=True,
-                                        fix_quantile_crossing=True))
+                                        fix_quantile_crossing=True, return_backcast=bool(covariates)))
         _CACHE[key] = model
-    y = history(df)[-max_context:]
-    _, quant = model.forecast(horizon=horizon, inputs=[y])
-    q = np.asarray(quant)[0]  # (horizon, 10): mean, q10, q20, ..., q90
+    y = history(df)
+    n = len(y)
+    y = y[-max_context:]
+    if covariates:
+        past = df[list(covariates)].iloc[:n].ffill().bfill().iloc[-len(y):]
+        fut = fill_future(df.iloc[:n + 1], covariates, horizon).ffill().bfill()
+        dyn = {c: [np.concatenate([past[c].to_numpy(float), fut[c].to_numpy(float)])] for c in covariates}
+        y = pd.Series(y).interpolate().bfill().to_numpy()  # the regression step cannot take gaps
+        _, quant = model.forecast_with_covariates(inputs=[y], dynamic_numerical_covariates=dyn,
+                                                  xreg_mode="xreg + timesfm")
+    else:
+        _, quant = model.forecast(horizon=horizon, inputs=[y])
+    q = np.asarray(quant)[0][:horizon]  # (horizon, 10): mean, q10, q20, ..., q90
     return result(q[:, 1], q[:, 5], q[:, 9])
 
 
 def moirai(df, horizon, future=None, covariates=(), freq="MS", model_id="Salesforce/moirai-2.0-R-small",
-           context=200, samples=200):
-    """Moirai forecast via uni2ts + GluonTS; covariates need values for the forecast steps too."""
+           context=200, samples=200, past_covariates=()):
+    """Moirai forecast via uni2ts. covariates need values for the forecast steps too (in `future`);
+    past_covariates are read for past months only (rain, soil moisture, ENSO, IOD)."""
     from uni2ts.model.moirai2 import Moirai2Forecast, Moirai2Module
     y = history(df)
     n = len(y)
@@ -89,11 +106,12 @@ def moirai(df, horizon, future=None, covariates=(), freq="MS", model_id="Salesfo
     module = _CACHE.get(model_id) or Moirai2Module.from_pretrained(model_id)
     _CACHE[model_id] = module
     model = Moirai2Forecast(module=module, prediction_length=horizon,
-                            context_length=min(context, n), target_dim=1,
-                            feat_dynamic_real_dim=len(cov), past_feat_dynamic_real_dim=0)
+                            context_length=min(context, n - 1), target_dim=1,  # n - 1: uni2ts cannot pad multi-column covariates
+                            feat_dynamic_real_dim=len(cov), past_feat_dynamic_real_dim=len(past_covariates))
     # Moirai2Forecast.predict skips the GluonTS predictor, whose output format changed in gluonts 0.17
     fdr = [frame[cov].to_numpy(float)] if cov else None
-    out = model.predict(past_target=[np.asarray(y, float)], feat_dynamic_real=fdr)
+    pdr = [df[list(past_covariates)].iloc[:n].ffill().bfill().to_numpy(float)] if past_covariates else None
+    out = model.predict(past_target=[np.asarray(y, float)], feat_dynamic_real=fdr, past_feat_dynamic_real=pdr)
     levels = list(module.quantile_levels)
     q = np.column_stack([np.asarray(out)[0, levels.index(t), :horizon].ravel() for t in QUANTILES])
     return result(q[:, 0], q[:, 1], q[:, 2])

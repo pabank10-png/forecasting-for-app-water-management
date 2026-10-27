@@ -2,7 +2,8 @@
 
 - กลุ่ม: Statistics (Time Series)
 - ทำอะไร: โมเดลฤดูกาลมาตรฐาน ใส่ฝน ENSO IOD และความชื้นดินเป็นตัวแปรภายนอก
-- ข้อมูลที่ใช้: inflow + exog
+- ข้อมูลที่ใช้: inflow + ฝน + ความชื้นดิน + ENSO (ONI) + IOD (DMI)
+- Lag: inflow: AR lag 1 + seasonal lag 12 | ฝน lag 1, ฝนรวม 3 เดือน lag 1, ความชื้นดิน lag 1, ONI lag 1, DMI lag 1
 - สถานะ: ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว
 
 ## หลักการ

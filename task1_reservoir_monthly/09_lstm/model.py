@@ -1,4 +1,4 @@
-"""LSTM: reads the last `window` months of inflow + rain + soil moisture + ENSO in order,
+"""LSTM: reads the last `window` months of inflow + rain + soil moisture + ENSO + IOD in order,
 keeps a memory (cell state) of wet/dry spells, then outputs P10/P50/P90 for each month ahead.
 
 past_cols are read for past months only. seq2seq=True uses an encoder-decoder
@@ -9,11 +9,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from common.features import SEQ_COVARIATES
 from common.nn import LSTMDirect, LSTMSeq2Seq, WindowForecaster
 
 
 class Model:
-    def __init__(self, window=24, horizon=12, past_cols=("rain_lag0_mm", "sm_root_lag1", "oni_lag1"),
+    def __init__(self, window=24, horizon=12, past_cols=SEQ_COVARIATES,
                  future_cols=(), seq2seq=False, epochs=200, **kw):
         self.net = LSTMSeq2Seq if seq2seq else LSTMDirect
         self.kw = dict(window=window, horizon=horizon, past_cols=past_cols, future_cols=future_cols,

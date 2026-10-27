@@ -13,12 +13,15 @@ import numpy as np
 
 from common import foundation
 from common.base import history
+from common.features import SEQ_COVARIATES
 
 
 class Model:
-    def __init__(self, horizon=12, steps=300, learning_rate=1e-5, extra_series=(), model_id="amazon/chronos-2"):
+    def __init__(self, horizon=12, steps=300, learning_rate=1e-5, extra_series=(), model_id="amazon/chronos-2",
+                 covariates=SEQ_COVARIATES, batch_size=32):
         self.horizon, self.steps, self.lr = horizon, steps, learning_rate
         self.extra_series, self.model_id = list(extra_series), model_id
+        self.covariates, self.batch_size = list(covariates), batch_size
 
     def fit(self, df):
         """extra_series: other reservoirs' DataFrames (same cut-off date) to train on together."""
@@ -26,10 +29,17 @@ class Model:
         base = BaseChronosPipeline.from_pretrained(self.model_id, device_map="cpu")
         if not hasattr(base, "fit"):
             raise RuntimeError("chronos-forecasting รุ่นนี้ยังไม่มี fine-tune (ต้องเป็น >= 2.0)")
-        inputs = [{"target": history(d).astype(np.float32)} for d in [df] + self.extra_series]
-        self.pipeline = base.fit(inputs=inputs, prediction_length=self.horizon,
-                                 num_steps=self.steps, learning_rate=self.lr)
+        inputs = []
+        for d in [df] + self.extra_series:
+            y = history(d).astype(np.float32)
+            item = {"target": y}
+            if self.covariates:  # past-only covariates, same as at forecast time
+                item["past_covariates"] = {c: d[c].iloc[:len(y)].to_numpy(np.float32) for c in self.covariates}
+            inputs.append(item)
+        # batch 32 instead of the package default 256: we have one series, and CPU time per step drops ~8x
+        self.pipeline = base.fit(inputs=inputs, prediction_length=self.horizon, num_steps=self.steps,
+                                 learning_rate=self.lr, batch_size=self.batch_size)
         return self
 
     def predict(self, df, horizon=1, future=None):
-        return foundation.chronos2(df, horizon, future, freq="ME", pipeline=self.pipeline)
+        return foundation.chronos2(df, horizon, future, self.covariates, freq="ME", pipeline=self.pipeline)

@@ -2,7 +2,8 @@
 
 - กลุ่ม: Machine Learning (Gradient-Boosted Trees)
 - ทำอะไร: ตัวเทียบของ LightGBM
-- ข้อมูลที่ใช้: ชีต LAG
+- ข้อมูลที่ใช้: inflow + ฝน + ความชื้นดิน + ENSO (ONI) + IOD (DMI) + ปริมาณน้ำต้นเดือน + outflow + เดือน
+- Lag: เหมือน LightGBM: inflow lag 1/2/3/6/12 | ฝน lag 1/2/3 | ONI, DMI lag 1/2/3/6 | ความชื้นดิน lag 1/2
 - สถานะ: ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว
 
 ## หลักการ

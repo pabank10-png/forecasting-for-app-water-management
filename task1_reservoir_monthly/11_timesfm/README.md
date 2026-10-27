@@ -2,8 +2,9 @@
 
 - กลุ่ม: Deep Learning (Foundation Model)
 - ทำอะไร: foundation model อีกค่าย ให้ quantile
-- ข้อมูลที่ใช้: inflow
-- สถานะ: เขียนโค้ดแล้ว ยังไม่ได้ทดสอบ (ต้องติดตั้ง torch + แพ็กเกจของโมเดล และโหลด weights)
+- ข้อมูลที่ใช้: inflow + ฝน + ความชื้นดิน + ENSO (ONI) + IOD (DMI)
+- Lag: inflow ย้อนหลังสูงสุด 1,024 เดือน | ฝน lag 1, ฝนรวม 3 เดือน lag 1, ความชื้นดิน lag 1, ONI lag 1, DMI lag 1 (regression)
+- สถานะ: ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว
 
 ## หลักการ
 Foundation model ของ Google ตัดอนุกรมเวลาเป็นท่อนๆ (patch) เช่นท่อนละ 32 ค่า แล้วให้ Transformer แบบ decoder-only ทำนายท่อนถัดไป เหมือนเดาคำถัดไปในประโยค ใช้แบบ zero-shot

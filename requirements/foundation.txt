@@ -2,6 +2,7 @@
 -r torch.txt
 chronos-forecasting>=2.0
 timesfm
+jax[cpu]                 # TimesFM covariates (forecast_with_covariates uses jax for the regression step)
 gluonts>=0.16
 einops
 jaxtyping

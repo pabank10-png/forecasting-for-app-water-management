@@ -24,7 +24,16 @@ def monthly():
     m = np.arange(n) % 12 + 1
     rain = 150 + 120 * np.sin((m - 4) / 12 * 2 * np.pi) + rng.normal(0, 30, n)
     df = pd.DataFrame({"date": pd.date_range("2010-01-31", periods=n, freq="ME"), "month": m,
-                       "rain_lag0_mm": rain, "sm_root_lag1": rng.random(n), "oni_lag1": rng.normal(0, 1, n)})
+                       "rain_lag0_mm": rain})
+    # same covariate columns as common.data.monthly_frame
+    df["rain_mm"] = rain
+    df["sm_root"], df["sm_top"] = rng.random(n), rng.random(n)
+    df["oni"], df["dmi"] = rng.normal(0, 1, n), rng.normal(0, 0.5, n)
+    df["rain_lag1_mm"] = df["rain_mm"].shift(1)
+    df["rain_sum3_lag1_mm"] = df["rain_mm"].rolling(3).sum().shift(1)
+    for c in ("sm_root", "sm_top", "oni", "dmi"):
+        df[f"{c}_lag1"] = df[c].shift(1)
+    df.loc[n - 1, ["sm_root", "sm_top", "oni", "dmi"]] = np.nan
     df["y"] = np.maximum(0.2 * rain + rng.normal(0, 5, n), 0)
     df.loc[n - 1, "y"] = np.nan
     return df, None

@@ -53,7 +53,13 @@ def monthly_frame(reservoir):
     """LAG table as a DataFrame with y = monthly inflow (MCM); the partial current month has y empty."""
     df = pd.read_csv(data_dir() / "lag.csv", encoding="utf-8-sig", parse_dates=["date"])
     df = df[df["reservoir"] == reservoir].sort_values("date").reset_index(drop=True)
-    return df.rename(columns={"target_inflow_mcm": "y"})
+    df = df.rename(columns={"target_inflow_mcm": "y"})
+    # Own-month series for the sequence models (they read past rows only). A lag-1 column on
+    # the next row is this month's value, so shift(-1) moves it back to its own month.
+    df["rain_mm"] = df["rain_lag0_mm"]
+    for c in ("sm_root", "sm_top", "oni", "dmi"):
+        df[c] = df[f"{c}_lag1"].shift(-1)
+    return df
 
 
 def daily_frame(reservoir):

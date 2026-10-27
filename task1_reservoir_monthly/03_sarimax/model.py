@@ -1,7 +1,9 @@
-"""SARIMAX on log(1 + inflow): AR + seasonal AR(12) + optional exogenous inputs.
+"""SARIMAX on log(1 + inflow): AR + seasonal AR(12) + exogenous inputs (the X).
 
-exog columns need values for every forecast step: pass them in `future`,
-otherwise the last known value is held (use only slowly changing inputs then).
+Default exog: last month's rain, 3-month rain, soil moisture, ENSO (ONI) and IOD (DMI),
+all lag 1, so step 1 uses values already known at the start of the month. Later steps
+take values from `future` when given, otherwise fill_future (calendar-month mean for
+rain and soil moisture, last value for ENSO/IOD).
 """
 import sys
 from pathlib import Path
@@ -13,10 +15,11 @@ import warnings
 import numpy as np
 
 from common.base import result
+from common.features import LAG_COVARIATES, fill_future
 
 
 class Model:
-    def __init__(self, order=(1, 0, 0), seasonal_order=(1, 0, 0, 12), exog=()):
+    def __init__(self, order=(1, 0, 0), seasonal_order=(1, 0, 0, 12), exog=LAG_COVARIATES):
         self.order, self.seasonal_order, self.exog = order, seasonal_order, list(exog)
 
     def _x(self, df):
@@ -37,9 +40,9 @@ class Model:
         x_hist = self._x(d)
         x_fut = None
         if self.exog:
-            last = df[self.exog].ffill().iloc[-1]
+            filled = fill_future(df, self.exog, horizon)
             x_fut = np.array([[future[c].iloc[h] if future is not None and c in future and h < len(future)
-                               else last[c] for c in self.exog] for h in range(horizon)], float)
+                               else filled[c].iloc[h] for c in self.exog] for h in range(horizon)], float)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             r = self.res.apply(np.log1p(d["y"].to_numpy(float)), exog=x_hist)

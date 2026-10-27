@@ -185,7 +185,7 @@ if nn is not None:
             self.blocks = nn.ModuleList()
             self.ncoef = []
             for k in self.pools:
-                n_in = -(-W // k) + H * c_fut
+                n_in = -(-W // k) * c_past + H * c_fut
                 nc = max(2, -(-H // k))
                 self.ncoef.append(nc)
                 self.blocks.append(mlp(n_in, W + 3 * nc, hidden=hidden))
@@ -195,7 +195,9 @@ if nn is not None:
             out = 0
             for k, nc, blk in zip(self.pools, self.ncoef, self.blocks):
                 pooled = nn.functional.max_pool1d(res.unsqueeze(1), k, k, ceil_mode=True).squeeze(1)
-                th = blk(torch.cat([pooled, fut.flatten(1)], 1))
+                cov = nn.functional.max_pool1d(past[:, :, 1:].permute(0, 2, 1), k, k, ceil_mode=True).flatten(1) \
+                    if past.shape[2] > 1 else past[:, :0, 0]  # rain, soil, ENSO, IOD at the same resolution
+                th = blk(torch.cat([pooled, cov, fut.flatten(1)], 1))
                 back, coef = th[:, :self.W], th[:, self.W:].view(-1, 3, nc)
                 fc = nn.functional.interpolate(coef, size=self.H, mode="linear", align_corners=True)
                 res = res - back

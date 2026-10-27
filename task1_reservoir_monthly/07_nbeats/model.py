@@ -1,4 +1,5 @@
-"""N-BEATS (interpretable): stacked trend and seasonality blocks on the inflow window only.
+"""N-BEATSx (interpretable): stacked trend and seasonality blocks on the inflow window, with the
+past window of rain, soil moisture, ENSO and IOD fed to every block as extra inputs (the "x").
 
 Each block reads what earlier blocks could not explain, predicts a backcast
 (removed from the input) and a forecast (added to the output). The trend
@@ -12,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
 
+from common.features import SEQ_COVARIATES
 from common.nn import WindowForecaster, mlp, nn, torch
 
 
@@ -35,12 +37,13 @@ class NBeats(nn.Module if nn else object):
         bases = [(_poly(W, degree, -W, H), _poly(H, degree, 0, H))] * blocks[0] +                 [(_fourier(W, period, harmonics, -W), _fourier(H, period, harmonics, 0))] * blocks[1]
         self.bb = [torch.tensor(b, dtype=torch.float32) for b, _ in bases]
         self.bf = [torch.tensor(f, dtype=torch.float32) for _, f in bases]
-        self.blocks = nn.ModuleList(mlp(W, b.shape[0] + 3 * f.shape[0], hidden) for b, f in bases)
+        self.blocks = nn.ModuleList(mlp(W * c_past, b.shape[0] + 3 * f.shape[0], hidden) for b, f in bases)
 
     def forward(self, past, fut):
         res, out = past[:, :, 0], 0
+        cov = past[:, :, 1:].flatten(1)  # covariate window, unchanged from block to block
         for blk, bb, bf in zip(self.blocks, self.bb, self.bf):
-            th = blk(res)
+            th = blk(torch.cat([res, cov], 1))
             nb, nf = bb.shape[0], bf.shape[0]
             res = res - th[:, :nb] @ bb
             out = out + (th[:, nb:].view(-1, 3, nf) @ bf).permute(0, 2, 1)
@@ -48,8 +51,8 @@ class NBeats(nn.Module if nn else object):
 
 
 class Model:
-    def __init__(self, window=36, horizon=12, epochs=300, **kw):
-        self.kw = dict(window=window, horizon=horizon, epochs=epochs, **kw)
+    def __init__(self, window=36, horizon=12, epochs=300, past_cols=SEQ_COVARIATES, **kw):
+        self.kw = dict(window=window, horizon=horizon, epochs=epochs, past_cols=past_cols, **kw)
 
     def fit(self, df):
         self.m = WindowForecaster(NBeats, **self.kw).fit(df)

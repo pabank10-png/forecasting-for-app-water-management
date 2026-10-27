@@ -4,7 +4,16 @@ import pandas as pd
 
 # Columns of the monthly LAG table that are not model inputs.
 NOT_FEATURES = {"y", "date", "reservoir", "rain_source", "is_partial_month", "year_ce",
-                "rain_lag0_mm", "inflow_clim_month"}
+                "rain_lag0_mm", "inflow_clim_month", "rain_mm", "sm_root", "sm_top", "oni", "dmi"}
+
+# Monthly inputs shared by every non-Baseline model:
+# - SEQ_COVARIATES: own-month series that sequence models read over their past window
+#   (the window itself is the lag: 24-36 months of rain, soil moisture, ENSO, IOD)
+# - LAG_COVARIATES: lag-1 columns known at the start of the target month, used as
+#   regressors by SARIMAX and TimesFM (later steps are filled by fill_future)
+SEQ_COVARIATES = ("rain_mm", "sm_root", "oni", "dmi")
+LAG_COVARIATES = ("rain_lag1_mm", "rain_sum3_lag1_mm", "sm_root_lag1", "oni_lag1", "dmi_lag1")
+PERSISTENT = ("oni", "dmi")  # slow climate indices: hold the last value for later steps
 
 
 def monthly_features(df):
@@ -48,3 +57,31 @@ def build(df, lags=(1, 2, 3), lag_cols=None, sums=None, means=None, keep=(), cal
             a = 2 * np.pi * d.dt.hour / 24
         out[f"{calendar}_sin"], out[f"{calendar}_cos"] = np.sin(a), np.cos(a)
     return out
+
+
+def fill_future(df, cols, horizon):
+    """Values of lag-type regressors for each forecast step, using only what is known at the origin.
+
+    df ends with the forecast row (its lag-1 columns are known). Step 1 takes that row;
+    later steps hold the last value for ENSO/IOD and use the calendar-month mean of the
+    history for rain and soil moisture (their real values are not known yet).
+    """
+    last = df.iloc[-1]
+    hist = df.iloc[:-1]
+    month = pd.to_datetime(hist["date"]).dt.month
+    start = pd.Timestamp(last["date"])
+    rows = []
+    for h in range(horizon):
+        m = (start + pd.offsets.MonthEnd(h)).month
+        row = {}
+        for c in cols:
+            known = df[c].ffill().iloc[-1]
+            if h == 0 and pd.notna(last[c]):
+                row[c] = last[c]
+            elif c.split("_")[0] in PERSISTENT:
+                row[c] = known
+            else:
+                v = hist[c][month == m].mean()
+                row[c] = v if pd.notna(v) else known
+        rows.append(row)
+    return pd.DataFrame(rows, columns=list(cols))
