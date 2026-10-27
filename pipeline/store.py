@@ -100,3 +100,17 @@ def latest_monthly_summary():
     rows = select("forecast_runs", "select=id,finished_at,summary&kind=eq.monthly&status=eq.done"
                                    "&order=finished_at.desc&limit=1")
     return rows[0] if rows else None
+
+
+def latest_done():
+    if not enabled():
+        return None
+    rows = select("forecast_runs", "select=id,kind,finished_at,summary&status=eq.done&order=finished_at.desc&limit=1")
+    return rows[0] if rows else None
+
+
+def run_summary(run_id):
+    if not enabled():
+        return None
+    rows = select("forecast_runs", f"select=summary&id=eq.{run_id}")
+    return (rows[0].get("summary") if rows else None) or None

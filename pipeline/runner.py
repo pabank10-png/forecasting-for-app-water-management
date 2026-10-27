@@ -102,11 +102,11 @@ def daily_frame_for_backtest(site, rain):
     return df, str(df["date"].iloc[-8])[:10]
 
 
-def run(name, kind):
+def run(name, kind, sites=None):
     task = name.split("/")[0]
     out = {"model": name, "task": task, "agent": plan.MODELS[name][0], "kind": kind, "sites": {}, "errors": {}}
     t0 = time.time()
-    for site in plan.SITES[task]:
+    for site in sites or plan.SITES[task]:
         t = time.time()
         try:
             res = (monthly_site if task == plan.T1 else daily_site)(name, site, kind)

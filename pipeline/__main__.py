@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import finish, plan, runner, store  # noqa: E402
+from pipeline import finish, fingerprint, plan, runner, store  # noqa: E402
 
 
 def gh_output(**kv):
@@ -49,8 +49,34 @@ def cmd_start(a):
         rows += [{"run_id": run_id, "step": f"model:{m}", "agent": plan.MODELS[m][0], "status": "queued",
                   "updated_at": store.now()} for m in names]
         store.upsert("forecast_run_steps", rows, "run_id,step")
-    matrix = [{"model": m, "group": plan.group(m), "id": m.replace("/", "__")} for m in names]
-    gh_output(run_id=run_id, matrix=json.dumps({"include": matrix}, separators=(",", ":")))
+    gh_output(run_id=run_id)
+
+
+def cmd_plan(a):
+    """After the data refresh: which (model, site) pairs must run. Monthly runs always run everything (backtest);
+    daily runs skip pairs whose inputs did not change since the last finished run and reuse its forecast."""
+    row = store.select("forecast_runs", f"select=models&id=eq.{a.run_id}") if store.enabled() else []
+    names = (row[0].get("models") if row else None) or plan.models(a.kind)
+    prints = fingerprint.all_inputs(names)
+    prev = store.latest_done() if a.kind == "daily" else None
+    old = ((prev or {}).get("summary") or {}).get("fingerprints") or {}
+    todo, reused = {}, {}
+    for m in names:
+        sites = [s for s, h in prints[m].items() if old.get(m, {}).get(s) != h]
+        if sites:
+            todo[m] = sites
+        if len(sites) < len(prints[m]):
+            reused[m] = [s for s in prints[m] if s not in sites]
+    for m in names:
+        if m not in todo:
+            store.step(a.run_id, f"model:{m}", "skipped", agent=plan.MODELS[m][0],
+                       message="ข้อมูลไม่เปลี่ยน ใช้ผลรอบก่อน")
+    matrix = [{"model": m, "sites": ",".join(ss), "group": plan.group(m), "id": m.replace("/", "__")} for m, ss in todo.items()]
+    Path(a.out).write_text(json.dumps({"fingerprints": prints, "reused": reused, "todo": todo,
+                                       "from_run": (prev or {}).get("id")}))
+    gh_output(matrix=json.dumps({"include": matrix}, separators=(",", ":")), has_models=str(bool(matrix)).lower(),
+              message=("ข้อมูลไม่เปลี่ยนเลย ใช้ผลรอบก่อนทั้งหมด" if not matrix else
+                       f"รันใหม่ {len(matrix)} โมเดล" + (f" ใช้ผลเดิม {len(names) - len(matrix)} โมเดล" if len(matrix) < len(names) else "")))
 
 
 def cmd_step(a):
@@ -64,7 +90,7 @@ def cmd_model(a):
     t0 = time.time()
     store.step(a.run_id, step, "running", agent=plan.MODELS[a.name][0])
     try:
-        res = runner.run(a.name, a.kind)
+        res = runner.run(a.name, a.kind, a.sites.split(",") if a.sites else None)
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         store.step(a.run_id, step, "failed", message=f"{type(e).__name__}: {e}", seconds=time.time() - t0)
@@ -86,6 +112,9 @@ def cmd_finish(a):
     for p in sorted(Path(a.results).glob("**/*__*.json")):  # one file per model, not summary.json
         r = json.loads(p.read_text())
         results[r["model"]] = r
+    plan_info = json.loads(Path(a.plan).read_text()) if a.plan and Path(a.plan).exists() else {}
+    if plan_info.get("reused") and plan_info.get("from_run"):
+        finish.reuse(results, plan_info["reused"], store.run_summary(plan_info["from_run"]), a.kind)
     prev_run = store.latest_monthly_summary() if a.kind != "monthly" else None
     prev = (prev_run or {}).get("summary") or {}
     if prev_run:
@@ -107,6 +136,8 @@ def cmd_finish(a):
     store.update_run(a.run_id, stage="publish")
     store.step(a.run_id, "publish", "running")
     summary["mvp"] = finish.mvp(summary)
+    summary["fingerprints"] = plan_info.get("fingerprints") or {}
+    summary["reused"] = {"from_run": plan_info.get("from_run"), "models": plan_info.get("reused") or {}}
     summary = finish.nan_free(summary)
     Path(a.results, "summary.json").write_text(json.dumps(summary))
     if store.enabled():
@@ -114,9 +145,14 @@ def cmd_finish(a):
     row = store.select("forecast_runs", f"select=models&id=eq.{a.run_id}") if store.enabled() else []
     expected = (row[0].get("models") if row else None) or list(results)
     failed = [m for m in expected if m not in results or not results[m]["sites"]]
+    notes = [f"{len(failed)} โมเดลไม่มีผล"] if failed else []
+    if plan_info and not plan_info.get("todo"):
+        notes.append("ข้อมูลไม่เปลี่ยน ใช้ผลรอบก่อนทั้งหมด")
+    elif plan_info.get("reused"):
+        notes.append(f"ใช้ผลเดิม {sum(len(v) for v in plan_info['reused'].values())} คู่โมเดล-อ่างที่ข้อมูลไม่เปลี่ยน")
     store.step(a.run_id, "publish", "done")
     store.update_run(a.run_id, status="done", stage="done", finished_at=store.now(), summary=summary,
-                     message=None if not failed else f"{len(failed)} โมเดลไม่มีผล")
+                     message=" · ".join(notes) or None)
 
 
 def cmd_fail(a):
@@ -131,6 +167,10 @@ def main(argv=None):
     s.add_argument("--trigger", default="manual")
     s.add_argument("--run-id")
     s.add_argument("--models")
+    s = sub.add_parser("plan")
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--kind", required=True)
+    s.add_argument("--out", default="plan.json")
     s = sub.add_parser("step")
     s.add_argument("--run-id", required=True)
     s.add_argument("--name", required=True)
@@ -141,15 +181,17 @@ def main(argv=None):
     s.add_argument("--kind", required=True)
     s.add_argument("--name", required=True)
     s.add_argument("--out", default="results")
+    s.add_argument("--sites", default="")
     s = sub.add_parser("finish")
     s.add_argument("--run-id", required=True)
     s.add_argument("--kind", required=True)
     s.add_argument("--results", default="results")
+    s.add_argument("--plan", default="plan.json")
     s = sub.add_parser("fail")
     s.add_argument("--run-id", required=True)
     s.add_argument("--message", default="")
     a = ap.parse_args(argv)
-    {"start": cmd_start, "step": cmd_step, "model": cmd_model, "finish": cmd_finish, "fail": cmd_fail}[a.cmd](a)
+    {"start": cmd_start, "plan": cmd_plan, "step": cmd_step, "model": cmd_model, "finish": cmd_finish, "fail": cmd_fail}[a.cmd](a)
 
 
 if __name__ == "__main__":

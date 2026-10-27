@@ -11,6 +11,23 @@ from . import data_prep, plan
 LAMBDA, MARGIN, MIN_COVER = 0.5, 0.02, 0.70
 
 
+def reuse(results, reused, prev_summary, kind):
+    """Put the previous run's forecast back for (model, site) pairs whose inputs did not change."""
+    if not prev_summary:
+        return
+    for name, sites in reused.items():
+        task = name.split("/")[0]
+        h = plan.HORIZON[(kind, task)]
+        for site in sites:
+            m = ((prev_summary.get("tasks") or {}).get(task, {}).get(site, {}).get("models") or {}).get(name)
+            if not m or not m.get("forecast"):
+                continue
+            r = results.setdefault(name, {"model": name, "task": task, "agent": plan.MODELS[name][0], "kind": kind,
+                                          "sites": {}, "errors": {}})
+            r["sites"][site] = {**{k: v for k, v in m.items() if k != "agent"}, "forecast": m["forecast"][:h],
+                                "reused": True}
+
+
 def scores_from(results):
     """{task: {site: {model: score}}} from this run's backtests."""
     out = {}

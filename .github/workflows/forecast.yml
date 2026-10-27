@@ -43,7 +43,8 @@ jobs:
     timeout-minutes: 40
     outputs:
       run_id: ${{ steps.start.outputs.run_id }}
-      matrix: ${{ steps.start.outputs.matrix }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_models: ${{ steps.plan.outputs.has_models }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -87,11 +88,16 @@ jobs:
           fi
           if timeout 15m python build_dataset.py >/dev/null 2>&1; then echo "built=1" >> "$GITHUB_OUTPUT"; else echo "::warning::dataset rebuild failed, using the committed CSVs"; git -C ../../.. checkout -- forecasting; echo "built=0" >> "$GITHUB_OUTPUT"; fi
           echo "sources_ok=$ok" >> "$GITHUB_OUTPUT"
+      # Daily runs rerun only the (model, reservoir) pairs whose inputs changed since the last finished run
+      - if: steps.check.outputs.ok == 'true'
+        name: Plan which models must run
+        id: plan
+        run: python -m pipeline plan --run-id "${{ steps.start.outputs.run_id }}" --kind "$KIND" --out data/plan.json
       - if: steps.check.outputs.ok == 'true'
         name: "Pack data, encrypted (artifacts of a public repo can be downloaded by anyone)"
         env:
           KEY: ${{ secrets.DATA_REPO_TOKEN }}
-        run: tar czf - -C data forecasting/1-reservoir-inflow/data | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:KEY -out dataset.enc
+        run: tar czf - -C data forecasting/1-reservoir-inflow/data plan.json | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:KEY -out dataset.enc
       - if: steps.check.outputs.ok == 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -99,7 +105,7 @@ jobs:
           path: dataset.enc
           retention-days: 3
       - if: steps.check.outputs.ok == 'true'
-        run: python -m pipeline step --run-id "${{ steps.start.outputs.run_id }}" --name data --status done --message "${{ steps.refresh.outputs.built == '1' && 'อัปเดตข้อมูลล่าสุดแล้ว' || 'อัปเดตไม่ได้ ใช้ข้อมูลชุดเดิมใน repo' }}"
+        run: python -m pipeline step --run-id "${{ steps.start.outputs.run_id }}" --name data --status done --message "${{ steps.refresh.outputs.built == '1' && 'อัปเดตข้อมูลล่าสุดแล้ว' || 'อัปเดตไม่ได้ ใช้ข้อมูลชุดเดิมใน repo' }} · ${{ steps.plan.outputs.message }}"
       - if: failure() && steps.start.outputs.run_id
         run: |
           python -m pipeline step --run-id "${{ steps.start.outputs.run_id }}" --name data --status failed --message "เตรียมข้อมูลไม่สำเร็จ"
@@ -107,7 +113,7 @@ jobs:
 
   model:
     needs: prepare
-    if: needs.prepare.outputs.run_id != ''
+    if: needs.prepare.outputs.run_id != '' && needs.prepare.outputs.has_models == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -140,7 +146,7 @@ jobs:
           KEY: ${{ secrets.DATA_REPO_TOKEN }}
         run: mkdir -p data && openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in dataset.enc | tar xzf - -C data && rm dataset.enc
       - name: Run ${{ matrix.model }}
-        run: python -m pipeline model --run-id "${{ needs.prepare.outputs.run_id }}" --kind "$KIND" --name "${{ matrix.model }}" --out results
+        run: python -m pipeline model --run-id "${{ needs.prepare.outputs.run_id }}" --kind "$KIND" --name "${{ matrix.model }}" --sites "${{ matrix.sites }}" --out results
       - name: Pack result (encrypted)
         if: always()
         env:
@@ -159,6 +165,7 @@ jobs:
 
   finish:
     needs: [prepare, model]
+    # also when no model had to run (model job skipped): finish then republishes the previous forecast
     if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.run_id != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -174,6 +181,7 @@ jobs:
         with:
           name: dataset
       - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.has_models == 'true'
         with:
           pattern: result-*
           path: packs
@@ -183,8 +191,8 @@ jobs:
         run: |
           mkdir -p data results
           openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in dataset.enc | tar xzf - -C data
-          for f in packs/*/result.enc; do openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in "$f" | tar xzf - || true; done
+          for f in packs/*/result.enc; do [ -f "$f" ] || continue; openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in "$f" | tar xzf - || true; done
       - name: Error Gate, Combination, storage, publish
-        run: python -m pipeline finish --run-id "${{ needs.prepare.outputs.run_id }}" --kind "$KIND" --results results
+        run: python -m pipeline finish --run-id "${{ needs.prepare.outputs.run_id }}" --kind "$KIND" --results results --plan data/plan.json
       - if: failure() || cancelled()
         run: python -m pipeline fail --run-id "${{ needs.prepare.outputs.run_id }}" --message "ขั้นสรุปผลไม่สำเร็จ ดู log ใน GitHub Actions"
