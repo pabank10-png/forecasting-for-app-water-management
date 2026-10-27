@@ -119,6 +119,7 @@ def cmd_finish(a):
     plan_info = json.loads(Path(a.plan).read_text()) if a.plan and Path(a.plan).exists() else {}
     if plan_info.get("reused") and plan_info.get("from_run"):
         finish.reuse(results, plan_info["reused"], store.run_summary(plan_info["from_run"]), a.kind)
+    finish.add_sums(results)
     prev_run = store.latest_monthly_summary() if a.kind != "monthly" else None
     prev = (prev_run or {}).get("summary") or {}
     if prev_run:

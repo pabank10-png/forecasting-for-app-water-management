@@ -49,5 +49,5 @@ def all_inputs(models):
     out = {}
     for m in models:
         task, c = m.split("/")[0], code(m)
-        out[m] = {s: _hash(site_inputs(task, s, m in plan.RAIN_MODELS), c) for s in plan.SITES[task]}
+        out[m] = {s: _hash(site_inputs(task, s, m in plan.RAIN_MODELS), c) for s in plan.sites(m)}
     return out

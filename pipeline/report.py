@@ -73,6 +73,10 @@ def _r(v, d=3):
 
 
 def _readme(name):
+    if name.endswith(plan.SUM):
+        return ["แยก 3 อ่างแล้วบวก: รันโมเดลนี้กับดอกกราย คลองใหญ่ หนองปลาไหลแยกกัน แล้วบวกเป็น 3 อ่างรวม",
+                "P50 = ผลรวม P50 · P10/P90 = ค่ากลางระหว่างแบบ 'ขึ้นลงพร้อมกัน' กับแบบ 'อิสระกัน'",
+                "ผลแยกรายอ่างอยู่ในไฟล์ของโมเดลตัวเดียวกัน (ไม่มี +sum)", ""] + _readme(plan.base(name))
     p = ROOT / plan.folder(name) / "README.md"
     lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else [name.split("/")[1]]
     if name in plan.VARIANTS:
@@ -110,11 +114,12 @@ def model_book(name, result, summary):
     wb.remove(wb.active)
     _sheet(wb, "วิธีการ", None, _readme(name))
     sites = (result or {}).get("sites") or {}
-    gate = {s: (summary["tasks"].get(task, {}).get(s, {}).get("gate") or {}).get(name) for s in plan.SITES[task]}
+    shown = tuple(plan.PARTS) if name.endswith(plan.SUM) else plan.summary_sites(task)
+    gate = {s: (summary["tasks"].get(task, {}).get(s, {}).get("gate") or {}).get(name) for s in shown}
     choice = summary.get("choice", {}).get(task, {})
 
     rows = []
-    for s in plan.SITES[task]:
+    for s in shown:
         g, c = gate.get(s) or {}, choice.get(s) or {}
         rows.append({"อ่าง": SITE_NAME[s], "MAE": _r(g.get("mae")), "Skill เทียบ Baseline": _r(g.get("skill")),
                      "Coverage P10–P90": _r(g.get("coverage")),
@@ -154,7 +159,7 @@ def model_book(name, result, summary):
                     ch.add_data(Reference(ws, min_col=c0 + j, min_row=hr, max_row=hr + len(one)), titles_from_data=True)
                 ch.set_categories(Reference(ws, min_col=c0, min_row=hr + 1, max_row=hr + len(one)))
                 ws.add_chart(ch, f"{get_column_letter(c0 + 6)}3")
-    for s in plan.SITES[task]:
+    for s in shown:
         df = _inputs(task, s)
         if df is not None and (s in sites or not sites):
             _sheet(wb, f"ข้อมูลเข้า_{s}", df, [f"{SITE_NAME[s]}: ข้อมูลที่โมเดลอ่าน" +

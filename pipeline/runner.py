@@ -107,7 +107,7 @@ def run(name, kind, sites=None):
     task = name.split("/")[0]
     out = {"model": name, "task": task, "agent": plan.MODELS[name][0], "kind": kind, "sites": {}, "errors": {}}
     t0 = time.time()
-    for site in sites or plan.SITES[task]:
+    for site in sites or plan.sites(name):
         t = time.time()
         try:
             res = (monthly_site if task == plan.T1 else daily_site)(name, site, kind)

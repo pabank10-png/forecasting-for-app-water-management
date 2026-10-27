@@ -28,6 +28,54 @@ def reuse(results, reused, prev_summary, kind):
                                 "reused": True}
 
 
+def _sum_rows(rows_by_part):
+    """Add P50s; P10/P90 halfway between 'parts move together' (sum of P10s) and 'parts are independent'
+    (P50 ± root-sum-square of the gaps). Together alone was too wide in the backtest, independent too narrow."""
+    p50 = sum(r["p50"] for r in rows_by_part)
+    lo_t, hi_t = sum(r["p10"] for r in rows_by_part), sum(r["p90"] for r in rows_by_part)
+    lo_i = p50 - sum(max(0.0, r["p50"] - r["p10"]) ** 2 for r in rows_by_part) ** 0.5
+    hi_i = p50 + sum(max(0.0, r["p90"] - r["p50"]) ** 2 for r in rows_by_part) ** 0.5
+    return max(0.0, (lo_t + lo_i) / 2), p50, (hi_t + hi_i) / 2
+
+
+def add_sums(results):
+    """'<model>+sum' for THREE = the model run on DK, KY and NPL separately, then added (forecast and backtest)."""
+    from .runner import _score
+    for name in [n for n in results if n.startswith(plan.T1) and not n.endswith(plan.SUM)]:
+        r = results[name]
+        for site, parts in plan.PARTS.items():
+            got = [r["sites"].get(p) for p in parts]
+            if any(g is None or not g.get("forecast") for g in got):
+                continue
+            fc = []
+            for rows in zip(*(g["forecast"] for g in got)):
+                if any(x["p50"] is None for x in rows):
+                    break
+                lo, mid, hi = _sum_rows(rows)
+                fc.append({"step": rows[0]["step"], "date": rows[0]["date"], "p10": round(lo, 4), "p50": round(mid, 4),
+                           "p90": round(hi, 4)})
+            entry = {"forecast": fc, "parts": list(parts)}
+            if all(g.get("bt") for g in got):
+                maps = [{k: i for i, k in enumerate(g["bt"]["key"])} for g in got]
+                keys = [k for k in got[0]["bt"]["key"] if all(k in m for m in maps)]
+                bt = {"key": [], "actual": [], "p10": [], "p50": [], "p90": []}
+                for k in keys:
+                    rows = [{q: g["bt"][q][m[k]] for q in ("actual", "p10", "p50", "p90")} for g, m in zip(got, maps)]
+                    if any(x["p50"] is None for x in rows):
+                        continue
+                    lo, mid, hi = _sum_rows(rows)
+                    act = None if any(x["actual"] is None for x in rows) else sum(x["actual"] for x in rows)
+                    for q, v in zip(("key", "actual", "p10", "p50", "p90"), (k, act, lo, mid, hi)):
+                        bt[q].append(v)
+                df = pd.DataFrame({"step": [int(k.split("|")[1]) for k in bt["key"]], "actual": bt["actual"],
+                                   "p10": bt["p10"], "p50": bt["p50"], "p90": bt["p90"]}).astype(float)
+                from .runner import M_STEPS_SCORED
+                entry["score"] = _score(df, M_STEPS_SCORED)
+                entry["bt"] = bt
+            results[name + plan.SUM] = {"model": name + plan.SUM, "task": r["task"], "agent": r["agent"],
+                                         "kind": r["kind"], "sites": {site: entry}, "errors": {}}
+
+
 def scores_from(results):
     """{task: {site: {model: score}}} from this run's backtests."""
     out = {}
@@ -159,7 +207,7 @@ def summarise(results, kind, previous_summary):
     out = {"kind": kind, "scores": scores, "choice": {}, "tasks": {},
            "scores_from": "this run" if kind == "monthly" else prev.get("scores_run")}
     for task in (plan.T1, plan.T1B):
-        for site in plan.SITES[task]:
+        for site in plan.summary_sites(task):
             ev = gate(task, site, scores)
             choice = combine(task, site, results, ev, kind, prev.get("choice"))
             out["choice"].setdefault(task, {})[site] = choice
@@ -170,7 +218,7 @@ def summarise(results, kind, previous_summary):
             fin = final_forecast(task, site, results, choice)
             entry = {"history": history(task, site), "models": models, "gate": ev, "final": fin,
                      "errors": {m: r["errors"][site] for m, r in results.items() if site in r.get("errors", {})}}
-            if task == plan.T1 and fin:
+            if task == plan.T1 and fin and site in COMPONENTS:
                 try:
                     champ = choice.get("champion")
                     sc = scores.get(task, {}).get(site, {})
