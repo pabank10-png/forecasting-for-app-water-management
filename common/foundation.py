@@ -73,7 +73,6 @@ def timesfm(df, horizon, model_id="google/timesfm-2.5-200m-pytorch", max_context
 def moirai(df, horizon, future=None, covariates=(), freq="MS", model_id="Salesforce/moirai-2.0-R-small",
            context=200, samples=200):
     """Moirai forecast via uni2ts + GluonTS; covariates need values for the forecast steps too."""
-    from gluonts.dataset.pandas import PandasDataset
     from uni2ts.model.moirai2 import Moirai2Forecast, Moirai2Module
     y = history(df)
     n = len(y)
@@ -87,11 +86,14 @@ def moirai(df, horizon, future=None, covariates=(), freq="MS", model_id="Salesfo
         tail = pd.DataFrame({c: future[c].to_numpy(float)[:horizon] for c in cov}, index=idx)
         tail["target"] = np.nan
         frame = pd.concat([frame, tail])
-    kw = {"feat_dynamic_real": cov, "future_length": horizon} if cov else {}
-    ds = PandasDataset({"s": frame}, target="target", **kw)
-    model = Moirai2Forecast(module=Moirai2Module.from_pretrained(model_id), prediction_length=horizon,
+    module = _CACHE.get(model_id) or Moirai2Module.from_pretrained(model_id)
+    _CACHE[model_id] = module
+    model = Moirai2Forecast(module=module, prediction_length=horizon,
                             context_length=min(context, n), target_dim=1,
                             feat_dynamic_real_dim=len(cov), past_feat_dynamic_real_dim=0)
-    fc = next(iter(model.create_predictor(batch_size=1).predict(ds)))
-    q = np.column_stack([fc.quantile(t) for t in QUANTILES])
+    # Moirai2Forecast.predict skips the GluonTS predictor, whose output format changed in gluonts 0.17
+    fdr = [frame[cov].to_numpy(float)] if cov else None
+    out = model.predict(past_target=[np.asarray(y, float)], feat_dynamic_real=fdr)
+    levels = list(module.quantile_levels)
+    q = np.column_stack([np.asarray(out)[0, levels.index(t), :horizon].ravel() for t in QUANTILES])
     return result(q[:, 0], q[:, 1], q[:, 2])
