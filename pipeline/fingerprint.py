@@ -2,6 +2,7 @@
 reruns only the (model, site) pairs whose inputs changed; the others keep the previous forecast."""
 import datetime as dt
 import hashlib
+from pathlib import Path
 
 import pandas as pd
 
@@ -34,10 +35,19 @@ def site_inputs(task, site, rain_model, today=None):
     return _hash(*parts)
 
 
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def code(model):
+    """Hash of the model's own code and the shared helpers, so a code change on main also triggers a rerun"""
+    files = sorted((ROOT / model).rglob("*.py")) + sorted((ROOT / "common").rglob("*.py"))
+    return _hash(*(f.relative_to(ROOT).as_posix().encode() + f.read_bytes() for f in files))
+
+
 def all_inputs(models):
     """{model: {site: hash}}"""
     out = {}
     for m in models:
-        task = m.split("/")[0]
-        out[m] = {s: site_inputs(task, s, m in plan.RAIN_MODELS) for s in plan.SITES[task]}
+        task, c = m.split("/")[0], code(m)
+        out[m] = {s: _hash(site_inputs(task, s, m in plan.RAIN_MODELS), c) for s in plan.SITES[task]}
     return out
