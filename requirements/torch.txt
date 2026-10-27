@@ -1,0 +1,4 @@
+# Deep Learning (N-BEATS, N-HiTS, LSTM): CPU build, about 200 MB instead of 3 GB
+--extra-index-url https://download.pytorch.org/whl/cpu
+-r base.txt
+torch>=2.3

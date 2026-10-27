@@ -1,0 +1,14 @@
+# Foundation Models: Chronos-2, TimesFM 2.5 (Moirai's uni2ts is installed separately, see the workflow)
+-r torch.txt
+chronos-forecasting>=2.0
+timesfm
+gluonts>=0.16
+einops
+jaxtyping
+lightning
+hydra-core
+orjson
+safetensors
+python-dotenv
+multiprocess
+huggingface_hub

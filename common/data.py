@@ -59,10 +59,11 @@ def monthly_frame(reservoir):
 def daily_frame(reservoir):
     """Daily table: y = inflow (MCM/day, RID where present else dam workbook), rain, storage, outflow."""
     df = pd.read_csv(data_dir() / f"daily_{reservoir}.csv", encoding="utf-8-sig", parse_dates=["date"])
+    col = lambda c: df[c] if c in df else pd.Series(float("nan"), index=df.index)  # PS has RID columns only
     out = pd.DataFrame({"date": df["date"]})
-    out["y"] = df["inflow_mcm_rid"].fillna(df["inflow_mcm_dam"])
-    out["rain"] = df["rain_mm"]
-    out["storage"] = df["storage_mcm"]
-    dam_out = df["outlet_mcm_dam"].fillna(0) + df["spillway_mcm_dam"].fillna(0)
-    out["outflow"] = df["outflow_mcm_rid"].fillna(dam_out.where(df["outlet_mcm_dam"].notna()))
+    out["y"] = col("inflow_mcm_rid").fillna(col("inflow_mcm_dam"))
+    out["rain"] = col("rain_mm")
+    out["storage"] = col("storage_mcm")
+    dam_out = col("outlet_mcm_dam").fillna(0) + col("spillway_mcm_dam").fillna(0)
+    out["outflow"] = col("outflow_mcm_rid").fillna(dam_out.where(col("outlet_mcm_dam").notna()))
     return out.sort_values("date").reset_index(drop=True)

@@ -13,6 +13,17 @@
 
 แต่ละโมเดลอยู่คนละ Folder มี `README.md` และ `model.py` รายชื่อโมเดลและหลักการอยู่ใน `pilot/forecasting/MODELS.md`
 
+## รันจริงบน GitHub Actions
+
+`.github/workflows/forecast.yml` รันทุกวัน 02:00 (รายวัน), วันที่ 2 เวลา 03:00 (รายเดือน + Backtest) และเมื่อกด Run ใน Forecast HQ บนเว็บ
+แต่ละโมเดลรันเป็นงานแยกพร้อมกัน เขียนสถานะทีละขั้นลง Supabase ให้ Animation เล่นตามจริง โค้ดอยู่ใน [pipeline](pipeline/) ตั้งค่าครั้งแรกดู [SETUP.md](SETUP.md)
+
+```
+FORECAST_DATA_DIR=... python -m pipeline model --run-id test --kind daily --name task1_reservoir_monthly/01_climatology --out results
+FORECAST_DATA_DIR=... python -m pipeline finish --run-id test --kind daily --results results
+```
+ไม่ตั้ง `SUPABASE_URL` จะไม่เขียนอะไรขึ้น Supabase (ใช้ทดสอบในเครื่อง)
+
 ## วิธีเรียกใช้โมเดล
 
 ทุกโมเดลใช้แบบเดียวกัน
@@ -28,7 +39,7 @@ fc = m.predict(df, 3)                            # ตาราง step, p10, p5
 
 - `predict(df, horizon, future)`: `future` คือค่าที่รู้ล่วงหน้าของแต่ละ step เช่นฝนพยากรณ์ (คอลัมน์ `rain`)
 - Backtest ย้อนหลัง: `common/backtest.py` (`run`, `summary`)
-- Foundation Model (Chronos-2, TimesFM, Moirai) เขียนโค้ดแล้วแต่ยังไม่ได้ทดสอบ ต้องติดตั้งแพ็กเกจและโหลด weights จาก HuggingFace
+- Foundation Model (Chronos-2, TimesFM, Moirai) ต้องติดตั้ง `requirements/foundation.txt` และ `pip install --no-deps uni2ts` แล้วโหลด weights จาก Hugging Face
 
 ## ทดสอบ
 

@@ -1,0 +1,10 @@
+# Baseline, Statistics, Machine Learning, Hydrology + dataset refresh
+numpy>=2.0
+pandas>=2.2
+scipy>=1.13
+statsmodels>=0.14
+lightgbm>=4.3
+scikit-learn>=1.4
+xgboost>=2.1
+numba>=0.60
+openpyxl>=3.1
