@@ -118,3 +118,43 @@ def run_summary(run_id):
         return None
     rows = select("forecast_runs", f"select=summary&id=eq.{run_id}")
     return (rows[0].get("summary") if rows else None) or None
+
+
+REPORT_BUCKET = "forecast-reports"
+
+
+def _storage(method, path, body=None, content_type="application/json", extra=None):
+    base, key = _cfg()
+    headers = {"apikey": key, "Content-Type": content_type, **(extra or {})}
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    data = body if isinstance(body, bytes) or body is None else json.dumps(body).encode()
+    req = urllib.request.Request(f"{base}/storage/v1/{path}", data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            raw = r.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode(errors="replace")[:300]
+        raise RuntimeError(f"Supabase Storage {method} {path} HTTP {e.code}: {msg}") from None
+
+
+def upload_report(name, data, keep_daily_days=40):
+    """Put the report zip in the private bucket (created on first use); drop daily zips older than keep_daily_days."""
+    if not enabled():
+        return None
+    try:
+        _storage("POST", "bucket", {"id": REPORT_BUCKET, "name": REPORT_BUCKET, "public": False})
+    except RuntimeError as e:
+        if "already exists" not in str(e) and "409" not in str(e) and "Duplicate" not in str(e):
+            print(f"[report] bucket: {e}", flush=True)
+    _storage("POST", f"object/{REPORT_BUCKET}/{name}", data, "application/zip", {"x-upsert": "true"})
+    try:
+        cut = (dt.date.today() - dt.timedelta(days=keep_daily_days)).isoformat()
+        files = _storage("POST", f"object/list/{REPORT_BUCKET}", {"prefix": "", "limit": 1000}) or []
+        old = [f["name"] for f in files if "_daily_" in f["name"] and f["name"][:10] < cut]
+        if old:
+            _storage("DELETE", f"object/{REPORT_BUCKET}", {"prefixes": old})
+    except RuntimeError as e:
+        print(f"[report] prune: {e}", flush=True)
+    return name

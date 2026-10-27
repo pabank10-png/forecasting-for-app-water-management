@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import finish, fingerprint, plan, runner, store  # noqa: E402
+from pipeline import finish, fingerprint, plan, report, runner, store  # noqa: E402
 
 
 def gh_output(**kv):
@@ -154,9 +154,28 @@ def cmd_finish(a):
         notes.append("ข้อมูลไม่เปลี่ยน ใช้ผลรอบก่อนทั้งหมด")
     elif plan_info.get("reused"):
         notes.append(f"ใช้ผลเดิม {sum(len(v) for v in plan_info['reused'].values())} คู่โมเดล-อ่างที่ข้อมูลไม่เปลี่ยน")
+    summary["report"] = publish_report(a, results, summary)
     store.step(a.run_id, "publish", "done")
     store.update_run(a.run_id, status="done", stage="done", finished_at=store.now(), summary=summary,
                      message=" · ".join(notes) or None)
+
+
+def publish_report(a, results, summary):
+    """Excel pack of this run for admins to download from HQ. A failure here never fails the run."""
+    try:
+        e = os.environ
+        url = (f"{e['GITHUB_SERVER_URL']}/{e['GITHUB_REPOSITORY']}/actions/runs/{e['GITHUB_RUN_ID']}"
+               if e.get("GITHUB_RUN_ID") else None)
+        data, name = report.build(results, summary, {"id": a.run_id, "kind": a.kind, "finished": report.thai_now(),
+                                                     "url": url})
+        Path(a.results, name).write_bytes(data)
+        if store.upload_report(name, data):
+            print(f"[report] {name}: {len(data) // 1024} KB", flush=True)
+            return {"path": name, "kb": len(data) // 1024}
+    except Exception as err:  # noqa: BLE001
+        traceback.print_exc()
+        print(f"[report] not published: {err}", flush=True)
+    return None
 
 
 def cmd_fail(a):

@@ -44,6 +44,8 @@
 - torch รุ่น CPU และแพ็กเกจ: cache ของ pip บน GitHub
 - weights ของ Chronos-2, TimesFM, Moirai: โหลดจาก Hugging Face ครั้งแรก แล้วเก็บใน cache ของ GitHub Actions (ฟรี สูงสุด 10 GB ต่อ repo; cache ที่ไม่ได้ใช้ 7 วันจะถูกลบแล้วโหลดใหม่เอง)
 - ผล: Supabase ตาราง `forecast_runs.summary` (ทุกอย่างที่ HQ แสดง) และ `forecast_values` (P10/P50/P90 ทุกโมเดล)
+- รายงาน Excel (zip): ทุกรอบสร้างไฟล์สรุป + ไฟล์แยกทุกโมเดล เก็บใน Supabase Storage bucket `forecast-reports` (private, สร้างเองครั้งแรก) ดาวน์โหลดจากปุ่ม 📦 รายงาน ในหน้า HQ (ใช้รหัส admin) รายงานรอบรายเดือนเก็บไว้ตลอด รอบรายวันเก็บ 40 วัน
+- Chronos-2 fine-tune เทรนเฉพาะรอบรายเดือน (ครั้งละ ~13 นาที) รอบรายวันใช้ผลรายเดือนล่าสุด
 
 ## License ของ weights
 
