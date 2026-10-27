@@ -20,7 +20,11 @@ def now():
 
 def _cfg():
     url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_BACKEND_KEY")
-    return (url.rstrip("/"), key) if url and key else (None, None)
+    if not (url and key):
+        return None, None
+    # Accept the URL with or without the /rest/v1 suffix the Supabase dashboard sometimes shows
+    url = url.strip().rstrip("/").removesuffix("/rest/v1")
+    return url, key.strip()
 
 
 def enabled():
