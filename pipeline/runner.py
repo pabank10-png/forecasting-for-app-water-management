@@ -52,7 +52,8 @@ def monthly_site(name, site, kind):
         n_obs = df["y"].last_valid_index() + 1
         d = df["date"].astype(str).str[:10]
         origins = [i for i in df.index[:n_obs] if M_FIRST <= d[i] <= M_LAST and pd.notna(df["y"][i])]
-        bt = backtest.run(lambda: mod.Model(), df.iloc[:n_obs], origins, 12, refit_every=12)
+        bt = backtest.run(lambda: mod.Model(), df.iloc[:n_obs], origins, 12,
+                          refit_every=plan.REFIT_EVERY.get(name, 12))
         out["score"] = _score(bt, M_STEPS_SCORED)
         out["bt"] = _bt_json(bt, M_STEPS_SCORED)
     return out

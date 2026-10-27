@@ -62,6 +62,9 @@ def cmd_plan(a):
     old = ((prev or {}).get("summary") or {}).get("fingerprints") or {}
     todo, reused = {}, {}
     for m in names:
+        if a.kind == "daily" and m in plan.MONTHLY_ONLY:
+            reused[m] = list(prints[m])
+            continue
         sites = [s for s, h in prints[m].items() if old.get(m, {}).get(s) != h]
         if sites:
             todo[m] = sites
@@ -70,7 +73,8 @@ def cmd_plan(a):
     for m in names:
         if m not in todo:
             store.step(a.run_id, f"model:{m}", "skipped", agent=plan.MODELS[m][0],
-                       message="ข้อมูลไม่เปลี่ยน ใช้ผลรอบก่อน")
+                       message="รันเฉพาะรอบรายเดือน ใช้ผลรายเดือนล่าสุด" if m in plan.MONTHLY_ONLY and a.kind == "daily"
+                       else "ข้อมูลไม่เปลี่ยน ใช้ผลรอบก่อน")
     matrix = [{"model": m, "sites": ",".join(ss), "group": plan.group(m), "id": m.replace("/", "__")} for m, ss in todo.items()]
     Path(a.out).write_text(json.dumps({"fingerprints": prints, "reused": reused, "todo": todo,
                                        "from_run": (prev or {}).get("id")}))

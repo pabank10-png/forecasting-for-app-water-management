@@ -22,6 +22,7 @@ MODELS = {
     f"{T1}/10_chronos2": ("fm", True, True),
     f"{T1}/11_timesfm": ("fm", True, True),
     f"{T1}/12_moirai": ("fm", True, True),
+    f"{T1}/13_chronos2_finetune": ("fm", True, True),
     f"{T1B}/01_persistence": ("base", False, False),
     f"{T1B}/02_day_climatology": ("base", False, False),
     f"{T1B}/03_gr4j": ("hydro", False, False),
@@ -30,13 +31,16 @@ MODELS = {
     f"{T1B}/06_lstm_seq2seq": ("rnn", True, False),
     f"{T1B}/07_chronos2_exog": ("fm", True, True),
 }
-# Left out on purpose: 13_chronos2_finetune (about 1 h per training on CPU and worse than zero-shot),
-# 90_conformal / 91_ensemble (the finish step does the gate, weights and champion itself),
+# Left out on purpose: 90_conformal / 91_ensemble (the finish step does the gate, weights and champion itself),
 # 95_water_balance (not a model: month-end storage is computed on the HQ page), Task 2 (no hourly river history yet).
 
 BASELINE = {T1: f"{T1}/01_climatology", T1B: f"{T1B}/02_day_climatology"}
 SITES = {T1: ("THREE", "PS"), T1B: ("DK", "KY", "NPL", "PS")}
 HORIZON = {("daily", T1): 4, ("monthly", T1): 12, ("daily", T1B): 7, ("monthly", T1B): 7}
+# Trained only in the monthly run (about 13 min per fit on CPU); daily runs reuse its latest forecast
+MONTHLY_ONLY = {f"{T1}/13_chronos2_finetune"}
+# Backtest refit interval in months (default 12); fewer refits keep slow models inside the job time limit
+REFIT_EVERY = {f"{T1}/13_chronos2_finetune": 36}
 RAIN_MODELS = {f"{T1B}/03_gr4j", f"{T1B}/04_hbv", f"{T1B}/05_lightgbm_daily", f"{T1B}/06_lstm_seq2seq",
                f"{T1B}/07_chronos2_exog"}
 
