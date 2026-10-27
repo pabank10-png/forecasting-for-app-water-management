@@ -43,16 +43,16 @@ def _bt_json(bt, steps=None):
 
 
 def monthly_site(name, site, kind):
-    mod, h = load(name), plan.HORIZON[(kind, plan.T1)]
+    mod, kw, h = load(plan.folder(name)), plan.kwargs(name), plan.HORIZON[(kind, plan.T1)]
     df = data_prep.monthly(site)
-    m = mod.Model().fit(df)
+    m = mod.Model(**kw).fit(df)
     fc = m.predict(df, h)
     out = {"forecast": _rows(fc, data_prep.month_ends(df["date"].iloc[-1], h))}
     if kind == "monthly":
         n_obs = df["y"].last_valid_index() + 1
         d = df["date"].astype(str).str[:10]
         origins = [i for i in df.index[:n_obs] if M_FIRST <= d[i] <= M_LAST and pd.notna(df["y"][i])]
-        bt = backtest.run(lambda: mod.Model(), df.iloc[:n_obs], origins, 12,
+        bt = backtest.run(lambda: mod.Model(**kw), df.iloc[:n_obs], origins, 12,
                           refit_every=plan.REFIT_EVERY.get(name, 12))
         out["score"] = _score(bt, M_STEPS_SCORED)
         out["bt"] = _bt_json(bt, M_STEPS_SCORED)
@@ -60,13 +60,13 @@ def monthly_site(name, site, kind):
 
 
 def daily_site(name, site, kind):
-    mod, h = load(name), plan.HORIZON[(kind, plan.T1B)]
+    mod, kw, h = load(plan.folder(name)), plan.kwargs(name), plan.HORIZON[(kind, plan.T1B)]
     df = data_prep.daily(site)
     first = df["date"].iloc[-1] + pd.Timedelta(days=1)
     rain = name in plan.RAIN_MODELS
     futures = data_prep.forecast_rain(site, first, h) if rain else {}
     cur = data_prep.with_forecast_row(df)
-    m = mod.Model().fit(df)
+    m = mod.Model(**kw).fit(df)
     dates = [d.strftime("%Y-%m-%d") for d in pd.date_range(first, periods=h, freq="D")]
     out = {}
     if rain and futures:
@@ -84,7 +84,7 @@ def daily_site(name, site, kind):
             d = hist["date"].astype(str).str[:10]
             origins = [i for i in hist.index[(d >= D_FIRST) & (d <= last)][::D_EVERY] if pd.notna(hist["y"][i])]
             fut = ("rain",) if rain else ()
-            bt = backtest.run(lambda: mod.Model(), hist, origins, h, future_cols=fut, refit_every=73)
+            bt = backtest.run(lambda: mod.Model(**kw), hist, origins, h, future_cols=fut, refit_every=73)
             out["score"] = _score(bt)
             out["bt"] = _bt_json(bt)
     return out

@@ -23,6 +23,13 @@ MODELS = {
     f"{T1}/11_timesfm": ("fm", True, True),
     f"{T1}/12_moirai": ("fm", True, True),
     f"{T1}/13_chronos2_finetune": ("fm", True, True),
+    f"{T1}/03_sarimax_inflow": ("stat", False, False),
+    f"{T1}/07_nbeats_inflow": ("dec", True, False),
+    f"{T1}/08_nhits_inflow": ("dec", True, False),
+    f"{T1}/09_lstm_inflow": ("rnn", True, False),
+    f"{T1}/10_chronos2_inflow": ("fm", True, True),
+    f"{T1}/11_timesfm_inflow": ("fm", True, True),
+    f"{T1}/12_moirai_inflow": ("fm", True, True),
     f"{T1B}/01_persistence": ("base", False, False),
     f"{T1B}/02_day_climatology": ("base", False, False),
     f"{T1B}/03_gr4j": ("hydro", False, False),
@@ -37,6 +44,28 @@ MODELS = {
 BASELINE = {T1: f"{T1}/01_climatology", T1B: f"{T1B}/02_day_climatology"}
 SITES = {T1: ("THREE", "PS"), T1B: ("DK", "KY", "NPL", "PS")}
 HORIZON = {("daily", T1): 4, ("monthly", T1): 12, ("daily", T1B): 7, ("monthly", T1B): 7}
+# Same code as another folder with other settings: name -> (folder, Model kwargs). Every model that reads rain,
+# soil moisture, ENSO and IOD also runs on inflow alone; the backtest MAE and the gate decide each month which
+# one counts (user, 2026-10-27: covariates made THREE worse in Oct 2026, but may help in other years).
+VARIANTS = {
+    f"{T1}/03_sarimax_inflow": (f"{T1}/03_sarimax", {"exog": ()}),
+    f"{T1}/07_nbeats_inflow": (f"{T1}/07_nbeats", {"past_cols": ()}),
+    f"{T1}/08_nhits_inflow": (f"{T1}/08_nhits", {"past_cols": ()}),
+    f"{T1}/09_lstm_inflow": (f"{T1}/09_lstm", {"past_cols": ()}),
+    f"{T1}/10_chronos2_inflow": (f"{T1}/10_chronos2", {"covariates": ()}),
+    f"{T1}/11_timesfm_inflow": (f"{T1}/11_timesfm", {"covariates": ()}),
+    f"{T1}/12_moirai_inflow": (f"{T1}/12_moirai", {"past_covariates": ()}),
+}
+
+
+def folder(name):
+    return VARIANTS.get(name, (name, {}))[0]
+
+
+def kwargs(name):
+    return VARIANTS.get(name, (name, {}))[1]
+
+
 # Trained only in the monthly run (about 13 min per fit on CPU); daily runs reuse its latest forecast
 MONTHLY_ONLY = {f"{T1}/13_chronos2_finetune"}
 # Backtest refit interval in months (default 12); fewer refits keep slow models inside the job time limit

@@ -40,8 +40,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def code(model):
     """Hash of the model's own code and the shared helpers, so a code change on main also triggers a rerun"""
-    files = sorted((ROOT / model).rglob("*.py")) + sorted((ROOT / "common").rglob("*.py"))
-    return _hash(*(f.relative_to(ROOT).as_posix().encode() + f.read_bytes() for f in files))
+    files = sorted((ROOT / plan.folder(model)).rglob("*.py")) + sorted((ROOT / "common").rglob("*.py"))
+    return _hash(*(f.relative_to(ROOT).as_posix().encode() + f.read_bytes() for f in files), plan.kwargs(model))
 
 
 def all_inputs(models):
