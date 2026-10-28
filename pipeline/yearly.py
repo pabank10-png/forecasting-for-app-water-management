@@ -30,27 +30,28 @@ def tables(bt):
         b[c] = pd.to_numeric(b[c], errors="coerce")
     b["origin"] = pd.to_datetime(b["origin"]).dt.to_period("M")
     b["target"] = b["origin"] + (b["step"] - 1)
-    b = b.dropna(subset=["actual"])
-    act = b.drop_duplicates("target").set_index("target")["actual"]
+    act = b.dropna(subset=["actual"]).drop_duplicates("target").set_index("target")["actual"]
     p50 = {(o, t): v for o, t, v in zip(b["origin"], b["target"], b["p50"])}
     rows, stats = [], []
     for y in sorted({t.year for t in act.index}):
-        months = [t for t in pd.period_range(f"{y}-01", f"{y}-12", freq="M") if t in act.index]
-        jan = b[b["origin"] == pd.Period(f"{y}-01", "M")].set_index("target")
+        jan = b[b["origin"] == pd.Period(f"{y}-01", "M")].drop_duplicates("target").set_index("target")
+        # months with an actual, plus later months of the year that only have a forecast (rows without actual)
+        months = [t for t in pd.period_range(f"{y}-01", f"{y}-12", freq="M") if t in act.index or t in jan.index]
+        observed = [t for t in months if t in act.index]
         if not len(jan):
             continue
         yr = []
         for m in months:
             f = jan.loc[m] if m in jan.index else None
-            rest = [p50.get((m, k)) for k in months if k >= m]
-            known = sum(act[k] for k in months if k < m)
-            yr.append({"ปี": y, "เดือน": m.month, "ชื่อเดือน": MONTHS_TH[m.month - 1], "ค่าจริง": act[m],
+            rest = [p50.get((m, k)) for k in observed if k >= m]
+            known = sum(act[k] for k in observed if k < m)
+            yr.append({"ปี": y, "เดือน": m.month, "ชื่อเดือน": MONTHS_TH[m.month - 1], "ค่าจริง": act.get(m),
                        "ทายต้น ม.ค. P10": None if f is None else f["p10"],
                        "ทายต้น ม.ค. P50": None if f is None else f["p50"],
                        "ทายต้น ม.ค. P90": None if f is None else f["p90"],
                        "ทายต้นเดือนนั้น (1 เดือน)": p50.get((m, m)),
                        "ทาย 3 เดือนก่อน": p50.get((m - 2, m)),
-                       "ยอดรวมทั้งปีที่ประเมิน ณ ต้นเดือน": None if any(v is None or v != v for v in rest)
+                       "ยอดรวมทั้งปีที่ประเมิน ณ ต้นเดือน": None if m not in act.index or any(v is None or v != v for v in rest)
                        else known + sum(rest)})
         rows += yr
         df = pd.DataFrame(yr)
@@ -58,9 +59,10 @@ def tables(bt):
         def mae(col):
             d = df[["ค่าจริง", col]].dropna()
             return float((d["ค่าจริง"] - d[col]).abs().mean()) if len(d) else None
-        ta = float(df["ค่าจริง"].sum())
-        tf = float(df["ทายต้น ม.ค. P50"].sum()) if df["ทายต้น ม.ค. P50"].notna().all() else None
-        stats.append({"ปี": y, "จำนวนเดือน": len(df), "MAE ทายต้นปี": mae("ทายต้น ม.ค. P50"),
+        seen = df[df["ค่าจริง"].notna()]
+        ta = float(seen["ค่าจริง"].sum())
+        tf = float(seen["ทายต้น ม.ค. P50"].sum()) if seen["ทายต้น ม.ค. P50"].notna().all() else None
+        stats.append({"ปี": y, "จำนวนเดือน": len(seen), "MAE ทายต้นปี": mae("ทายต้น ม.ค. P50"),
                       "MAE ทายใหม่ 1 เดือน": mae("ทายต้นเดือนนั้น (1 เดือน)"), "MAE ทายใหม่ 3 เดือน": mae("ทาย 3 เดือนก่อน"),
                       "Inflow จริงรวม": ta, "ยอดรวมที่ทายต้น ม.ค.": tf,
                       "คลาดจากจริง (%)": None if tf is None or not ta else (tf - ta) / ta * 100})
