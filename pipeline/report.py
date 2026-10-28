@@ -17,10 +17,11 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
+from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from . import data_prep, plan
+from . import data_prep, plan, yearly
 
 ROOT = Path(__file__).resolve().parent.parent
 TASK_NAME = {plan.T1: "โจทย์ 1: Inflow อ่างรายเดือน", plan.T1B: "โจทย์ 1B: Inflow อ่างรายวัน 1–7 วัน"}
@@ -107,6 +108,50 @@ def _inputs(task, site):
     return df.round(4)
 
 
+def yearly_sheet(wb, title, site_label, bt, unit):
+    """Fixed-in-January vs rolling, one block per year: stats table, monthly table and a chart per year."""
+    monthly, stats = yearly.tables(bt)
+    if not len(monthly):
+        return None
+    ws, hr = _sheet(wb, title, stats.round(2),
+                    [f"{site_label}: ทายตอนต้น ม.ค. ครั้งเดียวทั้งปี เทียบทายใหม่ทุกต้นเดือน และค่าจริง ({unit})",
+                     "ทายต้นปี = ค่าที่ทายไว้ตอนต้น ม.ค. สำหรับทุกเดือนของปีนั้น · ทายใหม่ 1 เดือน = ทายตอนต้นเดือนนั้นเอง · "
+                     "ทายใหม่ 3 เดือน = ทายไว้ 3 เดือนก่อน",
+                     "ยอดรวมทั้งปีที่ประเมิน ณ ต้นเดือน = ค่าจริงของเดือนที่ผ่านไปแล้ว + ค่าที่ทายใหม่ตอนต้นเดือนนั้นสำหรับเดือนที่เหลือ",
+                     "ปีล่าสุดมีค่าจริงไม่ครบ 12 เดือน ยอดรวมจึงนับเฉพาะเดือนที่มีค่าจริง"],
+                    {"แบบที่แม่นกว่า": 18})
+    top = hr + len(stats) + 3
+    ws.cell(top - 1, 1, "รายเดือน ทุกปี").font = Font(name=FONT, bold=True, size=12)
+    cols = list(monthly.columns)
+    for j, c in enumerate(cols, 1):
+        cell = ws.cell(top, j, c)
+        cell.font, cell.fill = Font(name=FONT, bold=True, color="FFFFFF"), HEAD
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    for i, rec in enumerate(monthly.round(2).itertuples(index=False), top + 1):
+        for j, v in enumerate(rec, 1):
+            ws.cell(i, j, None if pd.isna(v) else v).font = Font(name=FONT)
+    for j in range(1, len(cols) + 1):
+        ws.column_dimensions[get_column_letter(j)].width = 14
+    # one chart per year, two per row to the right of the tables
+    pos = {c: j for j, c in enumerate(cols, 1)}
+    series = ["ค่าจริง", "ทายต้น ม.ค. P10", "ทายต้น ม.ค. P50", "ทายต้น ม.ค. P90", "ทายต้นเดือนนั้น (1 เดือน)", "ทาย 3 เดือนก่อน"]
+    first = top + 1
+    for k, (y, g) in enumerate(monthly.groupby("ปี", sort=True)):
+        a, b = first, first + len(g) - 1
+        first = b + 1
+        if len(g) < 2:
+            continue
+        ch = LineChart()
+        ch.title, ch.y_axis.title, ch.height, ch.width = f"{y}", unit, 7.5, 15
+        ch.x_axis.delete = ch.y_axis.delete = False
+        for name in series:
+            ch.add_data(Reference(ws, min_col=pos[name], min_row=a, max_row=b), titles_from_data=False)
+            ch.series[-1].tx = SeriesLabel(v=name)
+        ch.set_categories(Reference(ws, min_col=pos["ชื่อเดือน"], min_row=a, max_row=b))
+        ws.add_chart(ch, f"{get_column_letter(len(cols) + 2 + (k % 2) * 9)}{hr + (k // 2) * 15}")
+    return stats
+
+
 def model_book(name, result, summary):
     task = name.split("/")[0]
     unit = UNIT[task]
@@ -159,6 +204,8 @@ def model_book(name, result, summary):
                     ch.add_data(Reference(ws, min_col=c0 + j, min_row=hr, max_row=hr + len(one)), titles_from_data=True)
                 ch.set_categories(Reference(ws, min_col=c0, min_row=hr + 1, max_row=hr + len(one)))
                 ws.add_chart(ch, f"{get_column_letter(c0 + 6)}3")
+        if task == plan.T1 and r.get("bt12"):
+            yearly_sheet(wb, f"ต้นปีvsรายเดือน_{s}", SITE_NAME[s], yearly.from_json(r["bt12"]), unit)
     for s in shown:
         df = _inputs(task, s)
         if df is not None and (s in sites or not sites):
@@ -235,7 +282,27 @@ def method_sheet(wb, title="วิธีคิด", index=None):
     return ws
 
 
-def summary_book(summary, run):
+def yearly_overview(wb, results):
+    """Averages 2016–2025 per model and reservoir: fixed-in-January vs rolling (from this run's backtests)."""
+    rows = []
+    for name, r in (results or {}).items():
+        if r.get("task") != plan.T1:
+            continue
+        for s, e in (r.get("sites") or {}).items():
+            if e.get("bt12") and s in plan.summary_sites(plan.T1):
+                av = yearly.averages(yearly.tables(yearly.from_json(e["bt12"]))[1])
+                if av:
+                    rows.append({"อ่าง": SITE_NAME[s], "โมเดล": name.split("/")[-1], **{k: _r(v, 2) for k, v in av.items()}})
+    if not rows:
+        return
+    df = pd.DataFrame(rows).sort_values(["อ่าง", "MAE ทายใหม่ 1 เดือน"])
+    _sheet(wb, "ทายต้นปี_vs_รายเดือน", df,
+           ["ทายตอนต้น ม.ค. ครั้งเดียวทั้งปี เทียบทายใหม่ทุกต้นเดือน (เฉลี่ยปี 2016–2025)",
+            "MAE หน่วยล้าน ลบ.ม. ต่อเดือน · Error ยอดรวม = เฉลี่ยของ |ยอดที่ทายต้น ม.ค. − ยอดจริง| ÷ ยอดจริง",
+            "รายปีและกราฟของแต่ละปีอยู่ในชีต ต้นปีvsรายเดือน_<อ่าง> ในไฟล์ของแต่ละโมเดล"], {"อ่าง": 36, "โมเดล": 26})
+
+
+def summary_book(summary, run, results=None):
     wb = Workbook()
     wb.remove(wb.active)
     info = [f"รายงานผลพยากรณ์ Water Intelligence · รอบ{'รายเดือน' if summary.get('kind') == 'monthly' else 'รายวัน'}",
@@ -269,6 +336,7 @@ def summary_book(summary, run):
                                   "วันที่": r["date"], "P10": r["p10"], "P50": r["p50"], "P90": r["p90"]})
     _sheet(wb, "ภาพรวม", pd.DataFrame(over), info, {"โจทย์": 30, "อ่าง": 36, "น้ำหนัก": 40})
     method_sheet(wb)
+    yearly_overview(wb, results)
     _sheet(wb, "คะแนนโมเดล", pd.DataFrame(scores),
            ["คะแนนทดสอบย้อนหลังทุกโมเดล เรียงจาก MAE ต่ำสุด", "ผ่านด่าน = MAE ต่ำกว่า Baseline และ Coverage อยู่ในช่วง 0.80 ± 2·√(0.16/n) (ราว 0.73–0.87 เมื่อทดสอบ 120 ครั้ง)"])
     ws, hr = _sheet(wb, "ผลพยากรณ์สุดท้าย", pd.DataFrame(finals), ["ผลที่เว็บใช้ (ผู้ชนะของแต่ละอ่าง)"])
@@ -287,6 +355,7 @@ README = """รายงานผลพยากรณ์ Water Intelligence
 00_สรุปผล.xlsx
   ภาพรวม              ผู้ชนะของแต่ละอ่าง, MAE เทียบ Baseline, น้ำหนัก Blend
   วิธีคิด              P10/P50/P90, MAE, Skill, Coverage, ผ่านด่าน, น้ำหนัก อธิบายพร้อมตัวอย่าง
+  ทายต้นปี_vs_รายเดือน  ทายตอนต้น ม.ค. ครั้งเดียวทั้งปี เทียบทายใหม่ทุกเดือน ทุกโมเดล (เฉลี่ย 2016–2025)
   คะแนนโมเดล          ทุกโมเดล ทุกอ่าง เรียงจาก MAE ต่ำสุด
   ผลพยากรณ์สุดท้าย     ค่าที่เว็บแสดง (P10/P50/P90)
   พยากรณ์ทุกโมเดล      ผลของทุกโมเดลไว้เทียบกัน
@@ -298,6 +367,7 @@ README = """รายงานผลพยากรณ์ Water Intelligence
   พยากรณ์_<อ่าง>  P10/P50/P90 พร้อมกราฟ (โจทย์ 1B มีแยกตามค่ายฝนพยากรณ์ด้วย)
   ย้อนหลัง_<อ่าง>  ผลทดสอบย้อนหลังทุกจุด พร้อมกราฟค่าจริงเทียบพยากรณ์ (เฉพาะรอบรายเดือน)
   ข้อมูลเข้า_<อ่าง> ข้อมูลที่โมเดลอ่านในรอบนี้
+  ต้นปีvsรายเดือน_<อ่าง>  โจทย์ 1: ทายต้น ม.ค. เทียบทายใหม่ทุกเดือนและค่าจริง รายปี พร้อมกราฟทุกปี (เฉพาะรอบรายเดือน)
 
 รอบรายวันไม่มีการทดสอบย้อนหลัง ใช้คะแนนจากรอบรายเดือนล่าสุด
 """
@@ -313,7 +383,7 @@ def build(results, summary, run):
             b = io.BytesIO()
             wb.save(b)
             z.writestr(f"{folder}/{path}", b.getvalue())
-        put("00_สรุปผล.xlsx", summary_book(summary, run))
+        put("00_สรุปผล.xlsx", summary_book(summary, run, results))
         for name in plan.MODELS:
             if name in results or any(name in (e.get("models") or {}) for e in summary["tasks"].get(name.split("/")[0], {}).values()):
                 r = results.get(name) or {"sites": {s: e["models"][name] for s, e in summary["tasks"][name.split("/")[0]].items()

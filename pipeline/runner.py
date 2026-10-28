@@ -56,6 +56,7 @@ def monthly_site(name, site, kind):
                           refit_every=plan.REFIT_EVERY.get(name, 12))
         out["score"] = _score(bt, M_STEPS_SCORED)
         out["bt"] = _bt_json(bt, M_STEPS_SCORED)
+        out["bt12"] = _bt_json(bt)  # all 12 steps, for the fixed-in-January vs rolling sheet
     return out
 
 
