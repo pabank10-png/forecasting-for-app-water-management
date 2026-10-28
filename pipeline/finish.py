@@ -8,7 +8,17 @@ from common.metrics import mae
 
 from . import data_prep, plan
 
-LAMBDA, MARGIN, MIN_COVER = 0.5, 0.02, 0.70
+LAMBDA, MARGIN = 0.5, 0.02
+TARGET_COVER = 0.80  # P10–P90 should hold 80% of actual values
+
+
+def cover_band(score):
+    """Coverage range a calibrated model lands in 95% of the time: 0.80 ± 2·√(0.8·0.2/n),
+    n = backtest origins (points ÷ steps, since steps of one origin move together).
+    Without a count it falls back to 0.70–0.90."""
+    n, steps = score.get("n"), len(score.get("mae_steps") or []) or 1
+    tol = 2 * np.sqrt(TARGET_COVER * (1 - TARGET_COVER) / (n / steps)) if n else 0.10
+    return round(TARGET_COVER - tol, 3), round(TARGET_COVER + tol, 3)
 
 
 def reuse(results, reused, prev_summary, kind):
@@ -87,7 +97,7 @@ def scores_from(results):
 
 
 def gate(task, site, scores):
-    """Pass = MAE below the Baseline (climatology) and P10–P90 covering at least 70% of actual values."""
+    """Pass = MAE below the Baseline (climatology) and P10–P90 coverage inside cover_band (about 0.73–0.87)."""
     sc = scores.get(task, {}).get(site, {})
     base = sc.get(plan.BASELINE[task], {}).get("mae")
     ev = {}
@@ -95,8 +105,9 @@ def gate(task, site, scores):
         if name == plan.BASELINE[task]:
             ev[name] = {"mae": s["mae"], "coverage": s["coverage"], "pass": None, "skill": 0.0}
             continue
-        ok = base is not None and s["mae"] is not None and s["mae"] < base and (s["coverage"] or 0) >= MIN_COVER
-        ev[name] = {"mae": s["mae"], "coverage": s["coverage"], "pass": bool(ok),
+        lo, hi = cover_band(s)
+        ok = base is not None and s["mae"] is not None and s["mae"] < base and lo <= (s["coverage"] or 0) <= hi
+        ev[name] = {"mae": s["mae"], "coverage": s["coverage"], "cover_band": [lo, hi], "pass": bool(ok),
                     "skill": None if not base or s["mae"] is None else round(1 - s["mae"] / base, 4)}
     return ev
 

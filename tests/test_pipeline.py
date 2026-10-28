@@ -32,7 +32,12 @@ c = finish.combine(T, "THREE", results, ev, "monthly", None)
 assert c["champion"] == "ensemble", c  # A and B cancel out, the blend beats both by far
 assert abs(sum(c["weights"].values()) - 1) < 1e-9
 
-results[B]["sites"]["THREE"]["score"]["coverage"] = 0.5  # B now fails the 70% coverage rule
+assert finish.cover_band({"n": 360, "mae_steps": [1, 2, 3]}) == (0.727, 0.873)  # 120 origins
+assert finish.cover_band({}) == (0.7, 0.9)
+results[A]["sites"]["THREE"]["score"].update(n=120, coverage=0.95)  # too wide fails too
+assert not finish.gate(T, "THREE", finish.scores_from(results))[A]["pass"]
+results[A]["sites"]["THREE"]["score"]["coverage"] = 0.8
+results[B]["sites"]["THREE"]["score"]["coverage"] = 0.5  # B now fails the coverage rule
 ev = finish.gate(T, "THREE", finish.scores_from(results))
 c = finish.combine(T, "THREE", results, ev, "monthly", None)
 assert c["champion"] == A and c["weights"] == {A: 1.0}, c

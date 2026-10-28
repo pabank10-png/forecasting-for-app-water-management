@@ -129,7 +129,7 @@ def model_book(name, result, summary):
                      "หมายเหตุ": (result or {}).get("errors", {}).get(s) or (sites.get(s) or {}).get("note")
                      or ("ใช้ผลรอบก่อน" if (sites.get(s) or {}).get("reused") else "")})
     _sheet(wb, "คะแนน", pd.DataFrame(rows),
-           [f"คะแนนทดสอบย้อนหลัง ({unit})", "MAE ยิ่งต่ำยิ่งดี · Coverage ควรใกล้ 0.80 · ผ่านด่าน = MAE ต่ำกว่า Baseline และ Coverage ≥ 0.70",
+           [f"คะแนนทดสอบย้อนหลัง ({unit})", "MAE ยิ่งต่ำยิ่งดี · Coverage ควรใกล้ 0.80 · ผ่านด่าน = MAE ต่ำกว่า Baseline และ Coverage อยู่ในช่วง 0.80 ± 2·√(0.16/n) (ราว 0.73–0.87 เมื่อทดสอบ 120 ครั้ง)",
             "รอบรายวันใช้คะแนนจากรอบรายเดือนล่าสุด"], {"หมายเหตุ": 40, "อ่าง": 36})
 
     for s, r in sites.items():
@@ -203,7 +203,7 @@ def summary_book(summary, run):
                                   "วันที่": r["date"], "P10": r["p10"], "P50": r["p50"], "P90": r["p90"]})
     _sheet(wb, "ภาพรวม", pd.DataFrame(over), info, {"โจทย์": 30, "อ่าง": 36, "น้ำหนัก": 40})
     _sheet(wb, "คะแนนโมเดล", pd.DataFrame(scores),
-           ["คะแนนทดสอบย้อนหลังทุกโมเดล เรียงจาก MAE ต่ำสุด", "ผ่านด่าน = MAE ต่ำกว่า Baseline และ Coverage ≥ 0.70"])
+           ["คะแนนทดสอบย้อนหลังทุกโมเดล เรียงจาก MAE ต่ำสุด", "ผ่านด่าน = MAE ต่ำกว่า Baseline และ Coverage อยู่ในช่วง 0.80 ± 2·√(0.16/n) (ราว 0.73–0.87 เมื่อทดสอบ 120 ครั้ง)"])
     ws, hr = _sheet(wb, "ผลพยากรณ์สุดท้าย", pd.DataFrame(finals), ["ผลที่เว็บใช้ (ผู้ชนะของแต่ละอ่าง)"])
     _sheet(wb, "พยากรณ์ทุกโมเดล", pd.DataFrame(every), ["ผลพยากรณ์ของทุกโมเดล"])
     st = [{"อ่าง": SITE_NAME[s], "วันที่": e["storage"].get("date"), "น้ำในอ่างวันนี้": e["storage"].get("storage_today"),
