@@ -202,6 +202,75 @@ def storage_base(site, task_scores, champion):
             "inflow_mae_steps": sc.get("mae_steps"), "inflow_mae": sc.get("mae")}
 
 
+# Daily Nowcast: P10/P90 of the month total = seen + (P50 - seen) x these ratios, from the 2016-2020 backtest
+# (/mnt/project-files/forecasting/experiments/daily_nowcast): ratios of actual to forecast for the unseen part.
+# Rain-driven daily models (THREE parts) are tighter than the day-average fallback (PS).
+NOWCAST_RATIO = {"rain": (0.5, 1.9), "average": (0.4, 3.0)}
+
+
+def _day_average(frame):
+    """Average inflow of each calendar day over the whole record."""
+    s = frame.dropna(subset=["y"])
+    return s.groupby([s["date"].dt.month, s["date"].dt.day])["y"].mean()
+
+
+def daily_nowcast(site, month_end, daily_finals, rain_parts):
+    """Month total for the current month from daily data (user, 2026-10-29):
+    inflow already recorded this month + Task 1B daily forecast for the next days of the month
+    + the past same-day average for days after the 7-day forecast.
+    In the 2016-2020 backtest this beat the monthly models' month forecast whatever the days left
+    (THREE MAE 1.6 vs 20 with <=7 days left, 12.7 vs 24 with 22-31 days left)."""
+    end = pd.Timestamp(month_end)
+    start = end.replace(day=1)
+    seen = fc = avg = 0.0
+    lo_ratio, hi_ratio = NOWCAST_RATIO["rain" if rain_parts else "average"]
+    last_seen = None
+    for c in COMPONENTS.get(site, (site,)):
+        rows = daily_finals.get(c)
+        if not rows:
+            return None
+        f = data_prep.daily(c)
+        month = f[(f["date"] >= start) & (f["date"] <= end)]
+        seen += float(month["y"].sum())
+        covered = set(month.loc[month["y"].notna(), "date"].dt.strftime("%Y-%m-%d"))
+        last_seen = max(filter(None, [last_seen, *covered]), default=None)
+        for r in rows:
+            if start.strftime("%Y-%m-%d") <= r["date"] <= end.strftime("%Y-%m-%d") and r["date"] not in covered:
+                fc += r["p50"] or 0.0
+                covered.add(r["date"])
+        mean = _day_average(f)
+        for d in pd.date_range(start, end):
+            if d.strftime("%Y-%m-%d") not in covered:
+                avg += float(mean.get((d.month, d.day), 0.0))
+    p50 = seen + fc + avg
+    rest = p50 - seen
+    return {"date": end.strftime("%Y-%m-%d"), "p10": round(seen + rest * lo_ratio, 4), "p50": round(p50, 4),
+            "p90": round(seen + rest * hi_ratio, 4), "seen": round(seen, 4), "daily_forecast": round(fc, 4),
+            "day_average": round(avg, 4), "seen_until": last_seen, "days_left": int((end - pd.Timestamp(last_seen)).days)
+            if last_seen else end.day}
+
+
+def apply_nowcast(out):
+    """Replace step 1 (current month) of every Task 1 final forecast with the Daily Nowcast."""
+    t1, t1b = out["tasks"].get(plan.T1, {}), out["tasks"].get(plan.T1B, {})
+    finals = {c: e.get("final") for c, e in t1b.items()}
+    rain = {c for c, ch in out["choice"].get(plan.T1B, {}).items()
+            if any(m in plan.RAIN_MODELS for m in (ch.get("weights") or {}))}
+    for site, entry in t1.items():
+        fin = entry.get("final")
+        if not fin:
+            continue
+        try:
+            nc = daily_nowcast(site, fin[0]["date"], finals, all(c in rain for c in COMPONENTS.get(site, (site,))))
+        except Exception as e:  # noqa: BLE001 - the monthly forecast stays if the daily data is not usable
+            entry["nowcast_error"] = f"{type(e).__name__}: {e}"[:200]
+            continue
+        if not nc:
+            continue
+        entry["nowcast"] = {**nc, "monthly_model": {q: fin[0][q] for q in ("p10", "p50", "p90")}}
+        fin[0] = {**fin[0], **{q: nc[q] for q in ("p10", "p50", "p90")}, "source": "daily_nowcast"}
+
+
 def history(task, site):
     if task == plan.T1:
         df = data_prep.monthly(site).dropna(subset=["y"]).tail(24)
@@ -239,6 +308,7 @@ def summarise(results, kind, previous_summary):
                 except Exception as e:  # noqa: BLE001
                     entry["storage_error"] = f"{type(e).__name__}: {e}"[:200]
             out["tasks"].setdefault(task, {})[site] = entry
+    apply_nowcast(out)
     return out
 
 

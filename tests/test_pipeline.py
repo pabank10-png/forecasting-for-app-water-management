@@ -51,4 +51,16 @@ c = finish.combine(T, "THREE", {A: results[A], B: results[B]}, {}, "daily", prev
 assert c["reused"] and abs(c["weights"][A] - 0.6) < 1e-9
 
 assert finish.nan_free({"x": float("nan"), "y": [1.0]}) == {"x": None, "y": [1.0]}
+
+# Daily Nowcast: 20 days seen (1 a day) + 7 forecast days (2 a day) + 4 days at the day average (3 a day)
+import pandas as pd  # noqa: E402
+days = pd.date_range("2026-10-01", "2026-10-20")
+hist = pd.DataFrame({"date": pd.date_range("2025-10-01", "2026-10-20")})
+hist["y"] = [3.0 if d < days[0] else 1.0 for d in hist["date"]]
+finish.data_prep.daily = lambda c: hist
+fc = [{"step": i + 1, "date": f"2026-10-{21 + i}", "p10": 1.0, "p50": 2.0, "p90": 4.0} for i in range(7)]
+nc = finish.daily_nowcast("PS", "2026-10-31", {"PS": fc}, True)
+assert nc["seen"] == 20 and nc["daily_forecast"] == 14 and nc["day_average"] == 12 and nc["p50"] == 46, nc
+assert nc["days_left"] == 11 and nc["p10"] < 46 < nc["p90"]
+assert finish.daily_nowcast("PS", "2026-10-31", {}, True) is None  # no daily forecast: monthly stays
 print("ok")
