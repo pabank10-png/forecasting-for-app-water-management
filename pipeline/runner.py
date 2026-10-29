@@ -16,6 +16,8 @@ warnings.filterwarnings("ignore")
 # Backtest windows, as in the Excel model reports (2026-10-26)
 M_FIRST, M_LAST, M_STEPS_SCORED = "2016-01-01", "2025-12-31", 3
 D_FIRST, D_LAST, D_EVERY, D_RAIN_END = "2016-01-01", "2020-09-03", 5, "2020-09-10"
+# Source test: archived forecast rain exists from about 2024; station rain fills the daily rain from May 2024
+S_FIRST, S_MIN_DAYS = "2024-06-01", 60
 
 
 def _rows(fc, dates):
@@ -60,7 +62,37 @@ def monthly_site(name, site, kind):
     return out
 
 
-def daily_site(name, site, kind):
+def source_backtest(mod, kw, df, archive, h):
+    """MAE of the 7-day inflow forecast when fed each source's past forecast rain (step s = rain forecast s days
+    ahead), on origins every 5 days from S_FIRST. Also the equal-weight blend of sources, and observed rain."""
+    d = df["date"]
+    last = len(df) - h
+    origins = [i for i in df.index[(d >= S_FIRST)][::D_EVERY] if i <= last and df["y"].iloc[i:i + h].notna().all()]
+    errs, model = {}, None
+    for k, i in enumerate(origins):
+        if model is None or k % 73 == 0:
+            model = mod.Model(**kw).fit(df.iloc[:i])
+        hist = df.iloc[:i + 1].copy()
+        hist.loc[hist.index[-1], "y"] = np.nan
+        act = df["y"].iloc[i:i + h].to_numpy(float)
+        days = d.iloc[i:i + h]
+        p50 = {}
+        for src, a in archive.items():
+            rain = [a[s].get(day, np.nan) if s in a else np.nan for s, day in zip(range(1, h + 1), days)]
+            if np.isnan(rain).any():
+                continue
+            p50[src] = model.predict(hist, h, pd.DataFrame({"rain": rain}))["p50"].to_numpy(float)
+        if not p50:
+            continue
+        for src, v in p50.items():
+            errs.setdefault(src, []).extend(np.abs(v - act))
+        errs.setdefault("blend", []).extend(np.abs(np.mean(list(p50.values()), axis=0) - act))
+        obs = df["rain"].iloc[i:i + h].fillna(0).reset_index(drop=True).to_frame()
+        errs.setdefault("observed_rain", []).extend(np.abs(model.predict(hist, h, obs)["p50"].to_numpy(float) - act))
+    return {s: {"mae": round(float(np.mean(e)), 4), "n": len(e)} for s, e in errs.items() if len(e) >= S_MIN_DAYS}
+
+
+def daily_site(name, site, kind, source_mae=None):
     mod, kw, h = load(plan.folder(name)), plan.kwargs(name), plan.HORIZON[(kind, plan.T1B)]
     df = data_prep.daily(site)
     first = df["date"].iloc[-1] + pd.Timedelta(days=1)
@@ -69,9 +101,16 @@ def daily_site(name, site, kind):
     cur = data_prep.with_forecast_row(df)
     m = mod.Model(**kw).fit(df)
     dates = [d.strftime("%Y-%m-%d") for d in pd.date_range(first, periods=h, freq="D")]
-    out = {}
+    out, scores = {}, None
+    if rain and kind == "monthly":  # weight the sources by their past forecast-rain errors
+        archive = data_prep.rain_archive(site, S_FIRST, df["date"].iloc[-1].date())
+        scores = source_backtest(mod, kw, df, archive, h) if archive else None
+        if scores:
+            source_mae = {k: v["mae"] for k, v in scores.items()}
     if rain and futures:
         ens = load(f"{plan.T1B}/90_rain_source_ensemble").Model(base=m)
+        if source_mae and all(s in source_mae for s in futures):
+            ens.set_source_mae({s: source_mae[s] for s in futures})
         fc = ens.predict(cur, h, futures)  # base model is already fitted
         out["by_source"] = {s: _rows(f, dates) for s, f in ens.members.items()}
     else:
@@ -88,6 +127,8 @@ def daily_site(name, site, kind):
             bt = backtest.run(lambda: mod.Model(**kw), hist, origins, h, future_cols=fut, refit_every=73)
             out["score"] = _score(bt)
             out["bt"] = _bt_json(bt)
+    if scores:
+        out["source_scores"] = scores
     return out
 
 
@@ -104,14 +145,18 @@ def daily_frame_for_backtest(site, rain):
     return df, str(df["date"].iloc[-8])[:10]
 
 
-def run(name, kind, sites=None):
+def run(name, kind, sites=None, source_mae=None):
+    """source_mae: {site: {source: MAE}} from the last monthly run, to weight the rain sources on daily runs."""
     task = name.split("/")[0]
     out = {"model": name, "task": task, "agent": plan.MODELS[name][0], "kind": kind, "sites": {}, "errors": {}}
     t0 = time.time()
     for site in sites or plan.sites(name):
         t = time.time()
         try:
-            res = (monthly_site if task == plan.T1 else daily_site)(name, site, kind)
+            if task == plan.T1:
+                res = monthly_site(name, site, kind)
+            else:
+                res = daily_site(name, site, kind, (source_mae or {}).get(site))
             res["seconds"] = round(time.time() - t, 1)
             out["sites"][site] = res
             print(f"{name} {site} ok {res['seconds']}s", flush=True)

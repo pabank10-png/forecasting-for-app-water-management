@@ -12,5 +12,5 @@
 | [05_lightgbm_daily](05_lightgbm_daily/) | LightGBM quantile รายวัน | Machine Learning (Gradient-Boosted Trees) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [06_lstm_seq2seq](06_lstm_seq2seq/) | LSTM / Seq2Seq รายวัน | Deep Learning (Neural Network) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [07_chronos2_exog](07_chronos2_exog/) | Chronos-2 + ฝนพยากรณ์ | Deep Learning (Foundation Model) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
-| [90_rain_source_ensemble](90_rain_source_ensemble/) | รันทุกโมเดลด้วยฝนแต่ละค่าย | Post-processing | เขียนโค้ดแล้ว ยังไม่ได้รัน (รอฝนพยากรณ์ 7 วันแยกรายค่าย) |
+| [90_rain_source_ensemble](90_rain_source_ensemble/) | รันทุกโมเดลด้วยฝนแต่ละค่าย | Post-processing | ใช้ในรอบรันจริง น้ำหนักแต่ละค่ายจากฝนพยากรณ์ย้อนหลังตั้งแต่ปี 2024 |
 | [95_water_balance_daily](95_water_balance_daily/) | Water Balance รายวัน | Water Balance | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |

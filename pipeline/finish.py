@@ -293,6 +293,8 @@ def summarise(results, kind, previous_summary):
             out["choice"].setdefault(task, {})[site] = choice
             models = {m: {"agent": r["agent"], "forecast": r["sites"][site]["forecast"],
                           **({"by_source": r["sites"][site]["by_source"]} if "by_source" in r["sites"][site] else {}),
+                          **({"source_scores": r["sites"][site]["source_scores"]}
+                             if "source_scores" in r["sites"][site] else {}),
                           **({"note": r["sites"][site]["note"]} if "note" in r["sites"][site] else {})}
                       for m, r in results.items() if r["task"] == task and site in r["sites"]}
             fin = final_forecast(task, site, results, choice)

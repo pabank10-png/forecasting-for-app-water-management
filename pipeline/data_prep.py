@@ -77,6 +77,54 @@ def forecast_rain(site, first_day, days=7):
     return out
 
 
+PREVIOUS_RUNS = "https://previous-runs-api.open-meteo.com/v1/forecast"
+
+
+def _archive_json(site, start, end, days):
+    lat, lon, _ = DAMS[site]
+    hourly = ",".join(f"precipitation_previous_day{k}" for k in range(1, days + 1))
+    url = (f"{PREVIOUS_RUNS}?latitude={lat}&longitude={lon}&hourly={hourly}&timezone=Asia%2FBangkok"
+           f"&start_date={start}&end_date={end}&models={','.join(RAIN_SOURCES.values())}")
+    req = urllib.request.Request(url, headers={"User-Agent": "WaterIntelligenceForecast/1.0"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.load(r)["hourly"]
+
+
+def parse_archive(hourly, days=7):
+    """Open-Meteo Previous Runs hourly JSON -> {source: DataFrame(index day, columns 1..days)}: rain (mm) of
+    each day as forecast `step` days earlier, so step s matches the s-th day of a live 7-day forecast.
+    A day needs at least 20 forecast hours, else it is left empty."""
+    t = pd.to_datetime(hourly["time"])
+    out = {}
+    for name, key in RAIN_SOURCES.items():
+        cols = {}
+        for k in range(1, days + 1):
+            vals = hourly.get(f"precipitation_previous_day{k}_{key}")
+            if vals is None:
+                continue
+            s = pd.Series(vals, index=t, dtype=float)
+            g = s.groupby(s.index.normalize())
+            cols[k] = g.sum(min_count=1).where(g.count() >= 20)
+        if cols:
+            out[name] = pd.DataFrame(cols).sort_index()
+    return out
+
+
+def rain_archive(site, start, end, days=7):
+    """Past daily forecast rain per source and lead (Open-Meteo Previous Runs, from about 2024).
+    Fetched a year at a time; {} if the service cannot be reached."""
+    parts = {}
+    try:
+        for a in pd.date_range(pd.Timestamp(start), pd.Timestamp(end), freq="365D"):
+            b = min(a + pd.Timedelta(days=364), pd.Timestamp(end))
+            for name, f in parse_archive(_archive_json(site, a.date(), b.date(), days), days).items():
+                parts.setdefault(name, []).append(f)
+    except Exception as e:  # noqa: BLE001
+        print(f"forecast rain archive unavailable for {site}: {e}", flush=True)
+        return {}
+    return {name: pd.concat(fs) for name, fs in parts.items()}
+
+
 def with_forecast_row(df, future=None):
     return next_row(df, future)
 

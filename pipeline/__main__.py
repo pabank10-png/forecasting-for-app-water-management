@@ -89,12 +89,28 @@ def cmd_step(a):
         store.update_run(a.run_id, stage="models")
 
 
+def source_mae(a):
+    """Rain-source errors of this model from the last monthly run, so daily runs weight the sources too."""
+    if a.kind == "monthly" or a.name not in plan.RAIN_MODELS:
+        return None
+    try:
+        tasks = ((store.latest_monthly_summary() or {}).get("summary") or {}).get("tasks", {}).get(plan.T1B, {})
+    except Exception:  # noqa: BLE001 - equal weights then
+        return None
+    out = {}
+    for site, e in tasks.items():
+        sc = ((e.get("models") or {}).get(a.name) or {}).get("source_scores") or {}
+        if sc:
+            out[site] = {k: v["mae"] for k, v in sc.items()}
+    return out
+
+
 def cmd_model(a):
     step = f"model:{a.name}"
     t0 = time.time()
     store.step(a.run_id, step, "running", agent=plan.MODELS[a.name][0])
     try:
-        res = runner.run(a.name, a.kind, a.sites.split(",") if a.sites else None)
+        res = runner.run(a.name, a.kind, a.sites.split(",") if a.sites else None, source_mae(a))
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         store.step(a.run_id, step, "failed", message=f"{type(e).__name__}: {e}", seconds=time.time() - t0)

@@ -64,3 +64,32 @@ assert nc["seen"] == 20 and nc["daily_forecast"] == 14 and nc["day_average"] == 
 assert nc["days_left"] == 11 and nc["p10"] < 46 < nc["p90"]
 assert finish.daily_nowcast("PS", "2026-10-31", {}, True) is None  # no daily forecast: monthly stays
 print("ok")
+
+# Forecast-rain archive: hourly Previous Runs JSON -> daily rain per source and lead
+import numpy as np  # noqa: E402
+from pipeline import data_prep, runner  # noqa: E402
+hours = pd.date_range("2024-06-01", periods=48, freq="h")
+js = {"time": [h.strftime("%Y-%m-%dT%H:%M") for h in hours],
+      "precipitation_previous_day1_ecmwf_ifs025": [1.0] * 48,
+      "precipitation_previous_day2_ecmwf_ifs025": [0.5] * 30 + [None] * 18}
+arc = data_prep.parse_archive(js, 2)
+assert list(arc) == ["ECMWF"] and arc["ECMWF"].loc["2024-06-01", 1] == 24 and arc["ECMWF"].loc["2024-06-01", 2] == 12
+assert np.isnan(arc["ECMWF"].loc["2024-06-02", 2])  # only 6 hours: left empty
+
+
+class Echo:  # inflow = forecast rain, so a source's error is its rain error
+    def fit(self, df):
+        return self
+
+    def predict(self, df, h, fut):
+        return pd.DataFrame({"p50": fut["rain"].to_numpy(float)})
+
+
+days = pd.date_range("2024-06-01", periods=200)
+truth = pd.Series(np.arange(200) % 7, index=days, dtype=float)
+df = pd.DataFrame({"date": days, "y": truth.to_numpy(), "rain": truth.to_numpy()})
+good = pd.DataFrame({s: truth for s in range(1, 8)})
+arch = {"ECMWF": good, "GFS": good + 2}
+sc = runner.source_backtest(type("M", (), {"Model": Echo}), {}, df, arch, 7)
+assert sc["ECMWF"]["mae"] == 0 and sc["GFS"]["mae"] == 2 and sc["blend"]["mae"] == 1 and sc["observed_rain"]["mae"] == 0, sc
+print("ok archive")
