@@ -36,6 +36,7 @@ MODELS = {
     f"{T1B}/04_hbv": ("hydro", False, False),
     f"{T1B}/08_hec_hms": ("hydro", False, False),
     f"{T1B}/05_lightgbm_daily": ("ml", False, False),
+    f"{T1B}/05_lightgbm_daily_soil": ("ml", False, False),
     f"{T1B}/06_lstm_seq2seq": ("rnn", True, False),
     f"{T1B}/07_chronos2_exog": ("fm", True, True),
 }
@@ -56,6 +57,7 @@ VARIANTS = {
     f"{T1}/10_chronos2_inflow": (f"{T1}/10_chronos2", {"covariates": ()}),
     f"{T1}/11_timesfm_inflow": (f"{T1}/11_timesfm", {"covariates": ()}),
     f"{T1}/12_moirai_inflow": (f"{T1}/12_moirai", {"past_covariates": ()}),
+    f"{T1B}/05_lightgbm_daily_soil": (f"{T1B}/05_lightgbm_daily", {"soil": True}),  # daily soil moisture
 }
 
 
@@ -86,7 +88,7 @@ MONTHLY_ONLY = {f"{T1}/13_chronos2_finetune"}
 # Backtest refit interval in months (default 12); fewer refits keep slow models inside the job time limit
 REFIT_EVERY = {f"{T1}/13_chronos2_finetune": 36}
 MODELS.update({m + SUM: v for m, v in list(MODELS.items()) if m.startswith(T1) and m not in MONTHLY_ONLY})
-RAIN_MODELS = {f"{T1B}/03_gr4j", f"{T1B}/04_hbv", f"{T1B}/08_hec_hms", f"{T1B}/05_lightgbm_daily", f"{T1B}/06_lstm_seq2seq",
+RAIN_MODELS = {f"{T1B}/03_gr4j", f"{T1B}/04_hbv", f"{T1B}/08_hec_hms", f"{T1B}/05_lightgbm_daily", f"{T1B}/05_lightgbm_daily_soil", f"{T1B}/06_lstm_seq2seq",
                f"{T1B}/07_chronos2_exog"}
 
 # Steps every run records, in order (the HQ rooms follow them)

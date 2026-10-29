@@ -75,15 +75,16 @@ jobs:
           path: data
           sparse-checkout: forecasting/1-reservoir-inflow
       - if: steps.check.outputs.ok == 'true'
-        name: Refresh dataset (newest RID inflow and station rain; soil moisture and ENSO/IOD on monthly runs)
+        name: Refresh dataset (newest RID inflow, station rain and soil moisture; ENSO/IOD on monthly runs)
         id: refresh
         working-directory: data/forecasting/1-reservoir-inflow/scripts
         run: |
           ok=1
           timeout 15m python fetch_station_rain.py >/dev/null 2>&1 || { echo "::warning::station rain not refreshed"; ok=0; }
-          # monthly inputs (soil moisture, ENSO/IOD) change once a month: refresh them on monthly runs only
+          # daily soil moisture feeds the daily inflow models, so it is refreshed every run
+          timeout 15m python fetch_soil_moisture.py >/dev/null 2>&1 || { echo "::warning::soil moisture not refreshed"; ok=0; }
+          # ENSO/IOD change once a month: refresh them on monthly runs only
           if [ "$KIND" = monthly ]; then
-            timeout 15m python fetch_soil_moisture.py >/dev/null 2>&1 || { echo "::warning::soil moisture not refreshed"; ok=0; }
             timeout 5m python fetch_climate_indices.py >/dev/null 2>&1 || { echo "::warning::ENSO/IOD not refreshed"; ok=0; }
           fi
           if timeout 15m python build_dataset.py >/dev/null 2>&1; then echo "built=1" >> "$GITHUB_OUTPUT"; else echo "::warning::dataset rebuild failed, using the committed CSVs"; git -C ../../.. checkout -- forecasting; echo "built=0" >> "$GITHUB_OUTPUT"; fi

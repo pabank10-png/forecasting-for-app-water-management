@@ -72,4 +72,20 @@ def daily_frame(reservoir):
     out["storage"] = col("storage_mcm")
     dam_out = col("outlet_mcm_dam").fillna(0) + col("spillway_mcm_dam").fillna(0)
     out["outflow"] = col("outflow_mcm_rid").fillna(dam_out.where(col("outlet_mcm_dam").notna()))
+    out = out.merge(daily_soil(reservoir), on="date", how="left")
     return out.sort_values("date").reset_index(drop=True)
+
+
+SOIL_AREA = {"DK": "pluakdaeng", "KY": "pluakdaeng", "NPL": "pluakdaeng", "PS": "bothong"}
+
+
+def daily_soil(reservoir):
+    """Daily ERA5-Land soil moisture of the reservoir's district (raw/soil_moisture_daily.csv beside the CSV
+    folder, from fetch_soil_moisture.py): sm_top = 0-7 cm, sm_root = 0-100 cm, m3/m3. Empty if not fetched."""
+    path = data_dir().parent / "raw" / "soil_moisture_daily.csv"
+    area = SOIL_AREA.get(reservoir)
+    cols = {f"sm_{area}_0_7": "sm_top", f"sm_{area}_0_100": "sm_root"}
+    if not path.exists() or area is None:
+        return pd.DataFrame({"date": pd.Series(dtype="datetime64[ns]"), "sm_top": [], "sm_root": []})
+    d = pd.read_csv(path, encoding="utf-8-sig", parse_dates=["date"])
+    return d[["date", *cols]].rename(columns=cols)

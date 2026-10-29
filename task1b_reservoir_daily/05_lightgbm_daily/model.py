@@ -3,6 +3,8 @@
 Inputs: inflow lags 1/2/3/7 days, rain sums of the last 1/3/7/30 days,
 yesterday's storage, day-of-year sin/cos, and the forecast rain of the
 target day (`future["rain"]`; run once per rain source for 90_rain_source_ensemble).
+soil=True adds ERA5-Land soil moisture (top 0-7 cm and root zone 0-100 cm) of 7 days
+before the target row: ERA5-Land runs about 6 days behind, so that is what is known at the origin.
 """
 import sys
 from pathlib import Path
@@ -15,11 +17,13 @@ from common.features import build
 from common.tabular import DirectQuantile
 
 builder = partial(build, lags=(1, 2, 3, 7), sums={"rain": (1, 3, 7, 30)}, keep=("storage",), calendar="doy")
+soil_builder = partial(builder, lag_cols={"sm_top": (7,), "sm_root": (7,)})
 
 
 class Model:
-    def __init__(self, horizon=7, params=None):
-        self.kw = dict(backend="lightgbm", horizon=horizon, builder=builder, future_features=("rain",), params=params)
+    def __init__(self, horizon=7, params=None, soil=False):
+        self.kw = dict(backend="lightgbm", horizon=horizon, builder=soil_builder if soil else builder,
+                       future_features=("rain",), params=params)
 
     def fit(self, df):
         self.m = DirectQuantile(**self.kw).fit(df)

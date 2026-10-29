@@ -81,7 +81,9 @@ def _readme(name):
     p = ROOT / plan.folder(name) / "README.md"
     lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else [name.split("/")[1]]
     if name in plan.VARIANTS:
-        lines = [f"รุ่น inflow อย่างเดียว (ไม่ใส่ฝน ความชื้นดิน ENSO IOD) ของ {plan.folder(name).split('/')[1]}", ""] + lines
+        what = ("รุ่นเพิ่มความชื้นดินรายวัน (ERA5-Land ชั้นบนและชั้นราก ย้อนหลัง 7 วัน)" if plan.kwargs(name).get("soil")
+                else "รุ่น inflow อย่างเดียว (ไม่ใส่ฝน ความชื้นดิน ENSO IOD)")
+        lines = [f"{what} ของ {plan.folder(name).split('/')[1]}", ""] + lines
     return lines
 
 
