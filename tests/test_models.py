@@ -65,7 +65,8 @@ KW = {"task2_river_hourly/02_travel_time": {}, "task2_river_hourly/11_hec_hms_ra
       "task2_river_hourly/91_rain_ensemble": {"base": "04_arx"},
       "task1_reservoir_monthly/90_conformal": {"calib_years": 2},
       "task1b_reservoir_daily/03_gr4j": {"maxiter": 2, "calib_years": 2},
-      "task1b_reservoir_daily/04_hbv": {"maxiter": 2, "calib_years": 2}}
+      "task1b_reservoir_daily/04_hbv": {"maxiter": 2, "calib_years": 2},
+      "task1b_reservoir_daily/08_hec_hms": {"maxiter": 2, "calib_years": 2}}
 H = {"task1_reservoir_monthly": 3, "task1b_reservoir_daily": 7, "task2_river_hourly": 12}
 DATA = {"task1_reservoir_monthly": monthly, "task1b_reservoir_daily": daily, "task2_river_hourly": hourly}
 

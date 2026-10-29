@@ -8,6 +8,7 @@
 | [02_day_climatology](02_day_climatology/) | ค่าเฉลี่ยวันเดียวกันในอดีต | Baseline | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [03_gr4j](03_gr4j/) | GR4J | Hydrology (Conceptual) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [04_hbv](04_hbv/) | HBV | Hydrology (Conceptual) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
+| [08_hec_hms](08_hec_hms/) | HEC-HMS (ใช้เทียบ) | Hydrology (Conceptual) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [05_lightgbm_daily](05_lightgbm_daily/) | LightGBM quantile รายวัน | Machine Learning (Gradient-Boosted Trees) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [06_lstm_seq2seq](06_lstm_seq2seq/) | LSTM / Seq2Seq รายวัน | Deep Learning (Neural Network) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [07_chronos2_exog](07_chronos2_exog/) | Chronos-2 + ฝนพยากรณ์ | Deep Learning (Foundation Model) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
