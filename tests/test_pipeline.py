@@ -93,3 +93,19 @@ arch = {"ECMWF": good, "GFS": good + 2}
 sc = runner.source_backtest(type("M", (), {"Model": Echo}), {}, df, arch, 7)
 assert sc["ECMWF"]["mae"] == 0 and sc["GFS"]["mae"] == 2 and sc["blend"]["mae"] == 1 and sc["observed_rain"]["mae"] == 0, sc
 print("ok archive")
+
+# A run cancelled on the website before GitHub picked it up stops at start and is not reopened as running
+import argparse  # noqa: E402
+from pipeline import __main__ as cli, store  # noqa: E402
+_saved = (store.enabled, store.select, store.create_run)
+store.enabled = lambda: True
+store.select = lambda table, query: [{"stage": "cancelled"}]
+store.create_run = lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not reopen a cancelled run"))
+try:
+    cli.cmd_start(argparse.Namespace(run_id="r1", kind="daily", models=None, trigger="manual"))
+    raise AssertionError("start should stop")
+except SystemExit as e:
+    assert "cancelled" in str(e)
+finally:
+    store.enabled, store.select, store.create_run = _saved
+print("cancel guard ok")

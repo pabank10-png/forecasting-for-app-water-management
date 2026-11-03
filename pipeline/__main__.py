@@ -34,6 +34,10 @@ def gh_output(**kv):
 
 def cmd_start(a):
     run_id = a.run_id or str(uuid.uuid4())
+    if a.run_id and store.enabled():
+        row = store.select("forecast_runs", f"select=stage&id=eq.{a.run_id}")
+        if row and row[0].get("stage") == "cancelled":  # cancelled on the website before GitHub picked it up
+            raise SystemExit("run cancelled from Forecast HQ before it started")
     names = plan.models(a.kind, [m.strip() for m in a.models.split(",") if m.strip()] if a.models else None)
     url = None
     if os.environ.get("GITHUB_RUN_ID"):
