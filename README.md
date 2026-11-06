@@ -15,7 +15,7 @@
 
 ## รันจริงบน GitHub Actions
 
-`.github/workflows/forecast.yml` รันทุกวัน 02:00 (รายวัน), วันที่ 2 เวลา 03:00 (รายเดือน + Backtest) และเมื่อกด Run ใน Forecast HQ บนเว็บ
+`.github/workflows/forecast.yml` รันทุกวัน 01:17 (รายวัน, สำรอง 04:47), วันที่ 2 เวลา 02:37 (รายเดือน + Backtest, สำรอง 06:07) และเมื่อกด Run ใน Forecast HQ บนเว็บ
 แต่ละโมเดลรันเป็นงานแยกพร้อมกัน เขียนสถานะทีละขั้นลง Supabase ให้ Animation เล่นตามจริง โค้ดอยู่ใน [pipeline](pipeline/) ตั้งค่าครั้งแรกดู [SETUP.md](SETUP.md)
 
 ```

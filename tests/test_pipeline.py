@@ -109,3 +109,25 @@ except SystemExit as e:
 finally:
     store.enabled, store.select, store.create_run = _saved
 print("cancel guard ok")
+
+# The backup schedule runs only when no run of that kind started recently; a failed check still runs
+import io, contextlib  # noqa: E402,E401
+_saved = (store.enabled, store.select)
+store.enabled = lambda: True
+try:
+    for rows, want in (([{"id": "x"}], "due=false"), ([], "due=true")):
+        seen = []
+        store.select = lambda table, query, rows=rows: seen.append(query) or rows
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_due(argparse.Namespace(kind="daily"))
+        assert want in out.getvalue(), out.getvalue()
+        assert "kind=eq.daily" in seen[0] and "status=in.(running,done)" in seen[0]
+    store.select = lambda table, query: (_ for _ in ()).throw(RuntimeError("down"))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cli.cmd_due(argparse.Namespace(kind="monthly"))
+    assert "due=true" in out.getvalue()
+finally:
+    store.enabled, store.select = _saved
+print("due ok")

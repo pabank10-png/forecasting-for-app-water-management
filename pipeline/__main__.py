@@ -1,5 +1,6 @@
 """Command line used by .github/workflows/forecast.yml (and for local tests).
 
+  python -m pipeline due    --kind daily|monthly  (scheduled runs: is a run still needed?)
   python -m pipeline start  --kind daily|monthly --trigger schedule|manual [--run-id ID] [--models a,b]
   python -m pipeline step   --run-id ID --name data --status running|done|failed [--message TEXT]
   python -m pipeline model  --run-id ID --kind K --name task1_reservoir_monthly/05_lightgbm_quantile --out results
@@ -9,11 +10,13 @@
 Without SUPABASE_URL / SUPABASE_BACKEND_KEY nothing is written to Supabase (local test).
 """
 import argparse
+import datetime as dt
 import json
 import os
 import sys
 import time
 import traceback
+import urllib.parse
 import uuid
 from pathlib import Path
 
@@ -30,6 +33,27 @@ def gh_output(**kv):
             with open(path, "a") as f:
                 f.write(line + "\n")
         print(line)
+
+
+# A scheduled run is skipped when a run of the same kind started this recently. The workflow has a main and a
+# backup schedule for each kind (GitHub starts scheduled runs hours late or drops them when it is busy); the
+# backup only runs when the main one never came.
+DUE_WINDOW_HOURS = {"daily": 8, "monthly": 20}
+
+
+def cmd_due(a):
+    due = True
+    if store.enabled():
+        since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=DUE_WINDOW_HOURS[a.kind])).isoformat(timespec="seconds")
+        try:
+            rows = store.select("forecast_runs", f"select=id,status,started_at&kind=eq.{a.kind}"
+                                f"&status=in.(running,done)&started_at=gte.{urllib.parse.quote(since)}&limit=1")
+            due = not rows
+        except Exception as e:  # noqa: BLE001 - when in doubt, run
+            print(f"could not check earlier runs ({e}); running anyway", flush=True)
+    if not due:
+        print(f"a {a.kind} run already started in the last {DUE_WINDOW_HOURS[a.kind]} h; this backup schedule is not needed")
+    gh_output(due=str(due).lower())
 
 
 def cmd_start(a):
@@ -206,6 +230,8 @@ def cmd_fail(a):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="pipeline")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("due")
+    s.add_argument("--kind", choices=("daily", "monthly"), required=True)
     s = sub.add_parser("start")
     s.add_argument("--kind", choices=("daily", "monthly"), required=True)
     s.add_argument("--trigger", default="manual")
@@ -235,7 +261,7 @@ def main(argv=None):
     s.add_argument("--run-id", required=True)
     s.add_argument("--message", default="")
     a = ap.parse_args(argv)
-    {"start": cmd_start, "plan": cmd_plan, "step": cmd_step, "model": cmd_model, "finish": cmd_finish, "fail": cmd_fail}[a.cmd](a)
+    {"due": cmd_due, "start": cmd_start, "plan": cmd_plan, "step": cmd_step, "model": cmd_model, "finish": cmd_finish, "fail": cmd_fail}[a.cmd](a)
 
 
 if __name__ == "__main__":
