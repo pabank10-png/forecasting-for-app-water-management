@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from common.data import data_dir
+from common.data import daily_soil, data_dir
 
 from . import data_prep, plan
 
@@ -27,7 +27,8 @@ def site_inputs(task, site, rain_model, today=None):
     d = data_dir()
     if task == plan.T1:
         return _hash(_rows(d / "lag.csv", "reservoir", site))
-    parts = [(d / f"daily_{site}.csv").read_bytes()]
+    # daily soil moisture is merged into every daily frame, so a newly fetched soil series reruns the site too
+    parts = [(d / f"daily_{site}.csv").read_bytes(), daily_soil(site).to_csv(index=False).encode()]
     if rain_model:
         rain = data_prep.station_rain(data_prep.DAMS[site][2])
         # forecast rain changes with every model cycle: a rain model reruns at least once a day
