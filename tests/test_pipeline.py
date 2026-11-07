@@ -131,3 +131,20 @@ try:
 finally:
     store.enabled, store.select = _saved
 print("due ok")
+
+
+# Daily runs show the whole year: months 5-12 come from the newest monthly run
+row = lambda i, d: {"step": i, "date": d, "p10": 1.0, "p50": 2.0, "p90": 3.0}
+months = ["2026-11-30", "2026-12-31", "2027-01-31", "2027-02-28", "2027-03-31", "2027-04-30",
+          "2027-05-31", "2027-06-30", "2027-07-31", "2027-08-31", "2027-09-30", "2027-10-31"]
+out = {"tasks": {plan.T1: {"THREE": {"final": [row(i + 1, d) for i, d in enumerate(months[:4])]},
+                           "PS": {"final": None}}}}
+prev = {"tasks": {plan.T1: {"THREE": {"final": [row(i + 1, d) for i, d in enumerate(months)]}}}}
+finish.extend_year(out, prev)
+fin = out["tasks"][plan.T1]["THREE"]["final"]
+assert [r["date"] for r in fin] == months and [r["step"] for r in fin] == list(range(1, 13))
+assert "source" not in fin[3] and fin[4]["source"] == "monthly_run"
+assert out["tasks"][plan.T1]["PS"]["final"] is None
+finish.extend_year(out, {})  # no monthly run yet: unchanged
+assert len(fin) == 12
+print("extend year ok")

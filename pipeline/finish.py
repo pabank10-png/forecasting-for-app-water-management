@@ -271,6 +271,20 @@ def apply_nowcast(out):
         fin[0] = {**fin[0], **{q: nc[q] for q in ("p10", "p50", "p90")}, "source": "daily_nowcast"}
 
 
+def extend_year(out, previous_summary):
+    """Daily runs forecast Task 1 only 4 months ahead; carry the later months (up to 12) of the newest
+    monthly run onto each site's final forecast, so the HQ always shows the whole year ahead."""
+    prev_t1 = ((previous_summary or {}).get("tasks") or {}).get(plan.T1, {})
+    for site, entry in out["tasks"].get(plan.T1, {}).items():
+        fin, older = entry.get("final"), (prev_t1.get(site) or {}).get("final")
+        if not fin or not older:
+            continue
+        last = fin[-1]["date"]
+        extra = [r for r in older if r.get("date") and r["date"] > last][:12 - len(fin)]
+        n = len(fin)
+        fin.extend([{**r, "step": n + i + 1, "source": "monthly_run"} for i, r in enumerate(extra)])
+
+
 def history(task, site):
     if task == plan.T1:
         df = data_prep.monthly(site).dropna(subset=["y"]).tail(24)
@@ -311,6 +325,8 @@ def summarise(results, kind, previous_summary):
                     entry["storage_error"] = f"{type(e).__name__}: {e}"[:200]
             out["tasks"].setdefault(task, {})[site] = entry
     apply_nowcast(out)
+    if kind != "monthly":
+        extend_year(out, prev)
     return out
 
 
