@@ -276,13 +276,20 @@ def extend_year(out, previous_summary):
     monthly run onto each site's final forecast, so the HQ always shows the whole year ahead."""
     prev_t1 = ((previous_summary or {}).get("tasks") or {}).get(plan.T1, {})
     for site, entry in out["tasks"].get(plan.T1, {}).items():
-        fin, older = entry.get("final"), (prev_t1.get(site) or {}).get("final")
-        if not fin or not older:
-            continue
-        last = fin[-1]["date"]
-        extra = [r for r in older if r.get("date") and r["date"] > last][:12 - len(fin)]
-        n = len(fin)
-        fin.extend([{**r, "step": n + i + 1, "source": "monthly_run"} for i, r in enumerate(extra)])
+        before = prev_t1.get(site) or {}
+        _extend(entry.get("final"), before.get("final"))
+        # each model's own line too, so the HQ tables and charts line up with the final forecast
+        for name, m in (entry.get("models") or {}).items():
+            _extend(m.get("forecast"), ((before.get("models") or {}).get(name) or {}).get("forecast"))
+
+
+def _extend(rows, older):
+    if not rows or not older:
+        return
+    last = rows[-1]["date"]
+    extra = [r for r in older if r.get("date") and r["date"] > last][:12 - len(rows)]
+    n = len(rows)
+    rows.extend([{**r, "step": n + i + 1, "source": "monthly_run"} for i, r in enumerate(extra)])
 
 
 def history(task, site):
