@@ -51,6 +51,24 @@ def _sum_rows(rows_by_part):
     return max(0.0, (lo_t + lo_i) / 2), p50, (hi_t + hi_i) / 2
 
 
+def _sum_bt(got, field):
+    """Backtest of the parts added up, matched on 'origin|step' keys (None when a part has no backtest)."""
+    if not all(g.get(field) for g in got):
+        return None
+    maps = [{k: i for i, k in enumerate(g[field]["key"])} for g in got]
+    keys = [k for k in got[0][field]["key"] if all(k in m for m in maps)]
+    bt = {"key": [], "actual": [], "p10": [], "p50": [], "p90": []}
+    for k in keys:
+        rows = [{q: g[field][q][m[k]] for q in ("actual", "p10", "p50", "p90")} for g, m in zip(got, maps)]
+        if any(x["p50"] is None for x in rows):
+            continue
+        lo, mid, hi = _sum_rows(rows)
+        act = None if any(x["actual"] is None for x in rows) else sum(x["actual"] for x in rows)
+        for q, v in zip(("key", "actual", "p10", "p50", "p90"), (k, act, lo, mid, hi)):
+            bt[q].append(v)
+    return bt
+
+
 def add_sums(results):
     """'<model>+sum' for THREE = the model run on DK, KY and NPL separately, then added (forecast and backtest)."""
     from .runner import _score
@@ -68,23 +86,16 @@ def add_sums(results):
                 fc.append({"step": rows[0]["step"], "date": rows[0]["date"], "p10": round(lo, 4), "p50": round(mid, 4),
                            "p90": round(hi, 4)})
             entry = {"forecast": fc, "parts": list(parts)}
-            if all(g.get("bt") for g in got):
-                maps = [{k: i for i, k in enumerate(g["bt"]["key"])} for g in got]
-                keys = [k for k in got[0]["bt"]["key"] if all(k in m for m in maps)]
-                bt = {"key": [], "actual": [], "p10": [], "p50": [], "p90": []}
-                for k in keys:
-                    rows = [{q: g["bt"][q][m[k]] for q in ("actual", "p10", "p50", "p90")} for g, m in zip(got, maps)]
-                    if any(x["p50"] is None for x in rows):
-                        continue
-                    lo, mid, hi = _sum_rows(rows)
-                    act = None if any(x["actual"] is None for x in rows) else sum(x["actual"] for x in rows)
-                    for q, v in zip(("key", "actual", "p10", "p50", "p90"), (k, act, lo, mid, hi)):
-                        bt[q].append(v)
+            bt = _sum_bt(got, "bt")
+            if bt:
                 df = pd.DataFrame({"step": [int(k.split("|")[1]) for k in bt["key"]], "actual": bt["actual"],
                                    "p10": bt["p10"], "p50": bt["p50"], "p90": bt["p90"]}).astype(float)
                 from .runner import M_STEPS_SCORED
                 entry["score"] = _score(df, M_STEPS_SCORED)
                 entry["bt"] = bt
+            bt12 = _sum_bt(got, "bt12")
+            if bt12:
+                entry["bt12"] = bt12
             results[name + plan.SUM] = {"model": name + plan.SUM, "task": r["task"], "agent": r["agent"],
                                          "kind": r["kind"], "sites": {site: entry}, "errors": {}}
 
@@ -202,6 +213,51 @@ def final_forecast(task, site, results, choice):
         v = {q: sum(choice["weights"][m] * (fcs[m][i][q] or 0) for m in fcs) for q in ("p10", "p50", "p90")}
         lo, mid, hi = sorted(v.values())
         out.append({"step": r["step"], "date": r["date"], "p10": round(lo, 4), "p50": round(mid, 4), "p90": round(hi, 4)})
+    return out
+
+
+def step_mae(bt):
+    """{step: MAE of the P50} from a backtest in JSON form (keys 'origin|step')."""
+    if not bt:
+        return {}
+    df = pd.DataFrame({"step": [int(k.split("|")[1]) for k in bt["key"]], "a": bt["actual"], "f": bt["p50"]},
+                      dtype=float).dropna()
+    return {int(st): float((g["f"] - g["a"]).abs().mean()) for st, g in df.groupby("step")}
+
+
+def far_months(site, results, choice):
+    """Months ahead where the Task 1 champion does not beat the Baseline in the 12-month backtest
+    (backtest 2016-2025: no model beats it beyond ~3 months). Those months of the final forecast use the
+    Baseline instead. Decided on monthly runs; daily runs carry the decision in the reused choice."""
+    from .runner import M_STEPS_SCORED
+    champ = choice.get("champion")
+    if champ == "ensemble":
+        champ = choice.get("best_single")
+    bt12 = lambda m: ((results.get(m) or {}).get("sites", {}).get(site) or {}).get("bt12")
+    cm = step_mae(bt12(champ)) if champ else {}
+    bases = [b for b in (plan.BASELINE[plan.T1], plan.BASELINE[plan.T1] + plan.SUM) if step_mae(bt12(b))]
+    if not cm or not bases or champ in bases:
+        return None
+    base = min(bases, key=lambda b: np.mean(list(step_mae(bt12(b)).values())))
+    bm = step_mae(bt12(base))
+    steps = [s for s in range(M_STEPS_SCORED + 1, 13) if s in cm and s in bm and not cm[s] < bm[s] * (1 - MARGIN)]
+    return {"baseline": base, "steps": steps, "from_backtest": "2016-2025",
+            "mae_champion": [round(cm.get(s), 3) if s in cm else None for s in range(1, 13)],
+            "mae_baseline": [round(bm.get(s), 3) if s in bm else None for s in range(1, 13)]}
+
+
+def apply_far(fin, results, site, far):
+    """Swap the far months (far['steps']) of the final forecast for the Baseline's forecast."""
+    if not fin or not far or not far.get("steps"):
+        return fin
+    base = {r["step"]: r for r in (((results.get(far["baseline"]) or {}).get("sites", {}).get(site) or {})
+                                   .get("forecast") or [])}
+    out = []
+    for r in fin:
+        b = base.get(r["step"])
+        if r["step"] in far["steps"] and b and b.get("p50") is not None:
+            r = {**r, **{q: b[q] for q in ("p10", "p50", "p90")}, "source": "baseline_far"}
+        out.append(r)
     return out
 
 
@@ -342,6 +398,10 @@ def summarise(results, kind, previous_summary):
                           **({"note": r["sites"][site]["note"]} if "note" in r["sites"][site] else {})}
                       for m, r in results.items() if r["task"] == task and site in r["sites"]}
             fin = final_forecast(task, site, results, choice)
+            if task == plan.T1:
+                if kind == "monthly" and choice.get("champion"):
+                    choice["far"] = far_months(site, results, choice)
+                fin = apply_far(fin, results, site, choice.get("far"))
             heavy = None
             if task == plan.T1B:
                 fin, heavy = heavy_rain_switch(site, results, fin)

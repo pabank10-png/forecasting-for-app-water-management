@@ -196,3 +196,25 @@ finish.reuse(res, {f"{plan.T1B}/04_hbv": ["NPL"]},
                                                                                       "forecast": hydro_rows}}}}}}, "daily")
 assert finish.rain7("NPL", res) == 120.0
 print("reuse rain7 ok")
+
+# Far months: where the champion does not beat the Baseline in the 12-month backtest, the final uses the Baseline
+def bt12(errs):
+    keys = [f"20{16 + o}-01-31|{s}" for o in range(3) for s in range(1, 13)]
+    return {"key": keys, "actual": [100.0] * len(keys), "p10": [0.0] * len(keys), "p90": [200.0] * len(keys),
+            "p50": [100.0 + errs[int(k.split("|")[1]) - 1] for k in keys]}
+fc12 = lambda v: [{"step": s, "date": months[s - 1], "p10": v - 1, "p50": v, "p90": v + 1} for s in range(1, 13)]
+champ = f"{T}/11_timesfm_inflow"
+res = {champ: {"task": T, "sites": {"PS": {"forecast": fc12(50.0), "bt12": bt12([5, 6, 7, 10, 9, 12, 12, 12, 12, 12, 12, 12])}}},
+       BASE: {"task": T, "sites": {"PS": {"forecast": fc12(30.0), "bt12": bt12([10] * 12)}}}}
+far = finish.far_months("PS", res, {"champion": champ})
+assert far["baseline"] == BASE and far["steps"] == [4, 6, 7, 8, 9, 10, 11, 12], far   # step 5 (9 < 10*0.98) keeps the model
+fin = finish.apply_far(fc12(50.0), res, "PS", far)
+assert [r["p50"] for r in fin] == [50, 50, 50, 30, 50] + [30] * 7 and fin[3]["source"] == "baseline_far"
+assert finish.far_months("PS", res, {"champion": BASE}) is None
+assert finish.apply_far(fc12(50.0), res, "PS", None)[5]["p50"] == 50.0
+# +sum models get a 12-month backtest too
+parts = {p: {"forecast": fc12(10.0), "bt": bt12([1] * 12), "bt12": bt12([1] * 12)} for p in plan.PARTS["THREE"]}
+res = {champ: {"task": T, "agent": "foundation", "kind": "monthly", "sites": parts, "errors": {}}}
+finish.add_sums(res)
+assert len(res[champ + plan.SUM]["sites"]["THREE"]["bt12"]["key"]) == 36
+print("far months ok")
