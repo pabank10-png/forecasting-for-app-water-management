@@ -29,13 +29,16 @@ def reuse(results, reused, prev_summary, kind):
         task = name.split("/")[0]
         h = plan.HORIZON[(kind, task)]
         for site in sites:
-            m = ((prev_summary.get("tasks") or {}).get(task, {}).get(site, {}).get("models") or {}).get(name)
+            entry = (prev_summary.get("tasks") or {}).get(task, {}).get(site, {})
+            m = (entry.get("models") or {}).get(name)
             if not m or not m.get("forecast"):
                 continue
             r = results.setdefault(name, {"model": name, "task": task, "agent": plan.MODELS[name][0], "kind": kind,
                                           "sites": {}, "errors": {}})
             r["sites"][site] = {**{k: v for k, v in m.items() if k != "agent"}, "forecast": m["forecast"][:h],
                                 "reused": True}
+            if entry.get("rain7_mm") is not None:  # the forecast rain behind the reused forecast (heavy-rain switch)
+                r["sites"][site]["rain7"] = entry["rain7_mm"]
 
 
 def _sum_rows(rows_by_part):

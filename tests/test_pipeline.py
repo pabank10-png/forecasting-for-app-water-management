@@ -188,3 +188,11 @@ dq = DirectQuantile(horizon=3, builder=partial(build, lags=(1, 2), sums={"rain":
 fc = dq.predict(d, 3, pd.DataFrame({"rain": [50.0, 0.0, 0.0]}))
 assert len(fc) == 3 and fc["p50"].notna().all()
 print("weighted quantile ok")
+
+# A reused daily forecast keeps the forecast rain it was made with
+res = {}
+finish.reuse(res, {f"{plan.T1B}/04_hbv": ["NPL"]},
+             {"tasks": {plan.T1B: {"NPL": {"rain7_mm": 120.0, "models": {f"{plan.T1B}/04_hbv": {"agent": "hydro",
+                                                                                      "forecast": hydro_rows}}}}}}, "daily")
+assert finish.rain7("NPL", res) == 120.0
+print("reuse rain7 ok")
