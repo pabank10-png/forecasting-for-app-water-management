@@ -153,3 +153,38 @@ assert len(models["a"]["forecast"]) == 12 and len(models["b"]["forecast"]) == 1 
 finish.extend_year(out, {})  # no monthly run yet: unchanged
 assert len(fin) == 12
 print("extend year ok")
+
+
+# Heavy forecast rain: the 1-7 day final switches to the dam's hydrology model
+hydro_rows = [{"step": k, "date": f"2026-09-{23 + k}", "p10": 5.0, "p50": 9.0, "p90": 15.0} for k in range(1, 8)]
+ml_rows = [{**r, "p50": 1.0} for r in hydro_rows]
+res = {plan.HEAVY_RAIN_MODEL["NPL"]: {"task": plan.T1B, "sites": {"NPL": {"forecast": hydro_rows, "rain7": 160.0}}},
+       f"{plan.T1B}/05_lightgbm_storm": {"task": plan.T1B, "sites": {"NPL": {"forecast": ml_rows, "rain7": 160.0}}}}
+fin, info = finish.heavy_rain_switch("NPL", res, ml_rows)
+assert fin[0]["p50"] == 9.0 and info["model"] == plan.HEAVY_RAIN_MODEL["NPL"] and info["rain7_mm"] == 160.0
+for r in res.values():
+    r["sites"]["NPL"]["rain7"] = 40.0
+fin, info = finish.heavy_rain_switch("NPL", res, ml_rows)
+assert fin is ml_rows and info is None
+print("heavy rain switch ok")
+
+# Station QC: a dead gauge (0 mm) is left out once the others have had real rain
+days = pd.date_range("2026-08-01", periods=60)
+tab = pd.DataFrame({"good": 10.0, "dead": 0.0}, index=days)
+m = data_prep.qc_mean(tab)
+assert m.iloc[:19].eq(5.0).all() and m.iloc[-1] == 10.0
+print("station qc ok")
+
+# DirectQuantile heavy weights: storm variant fits and predicts
+from common.tabular import DirectQuantile  # noqa: E402
+from functools import partial  # noqa: E402
+from common.features import build  # noqa: E402
+rng = np.random.default_rng(0)
+d = pd.DataFrame({"date": pd.date_range("2020-01-01", periods=400)})
+d["rain"] = rng.gamma(0.5, 10, len(d))
+d["y"] = d["rain"].rolling(3, min_periods=1).mean() / 5
+dq = DirectQuantile(horizon=3, builder=partial(build, lags=(1, 2), sums={"rain": (1, 3)}), future_features=("rain",),
+                    future_mode="both", heavy=5.0, params={"n_estimators": 20}).fit(d)
+fc = dq.predict(d, 3, pd.DataFrame({"rain": [50.0, 0.0, 0.0]}))
+assert len(fc) == 3 and fc["p50"].notna().all()
+print("weighted quantile ok")

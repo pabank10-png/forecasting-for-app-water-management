@@ -5,6 +5,9 @@ yesterday's storage, day-of-year sin/cos, and the forecast rain of the
 target day (`future["rain"]`; run once per rain source for 90_rain_source_ensemble).
 soil=True adds ERA5-Land soil moisture (top 0-7 cm and root zone 0-100 cm) of 7 days
 before the target row: ERA5-Land runs about 6 days behind, so that is what is known at the origin.
+storm=True (variant 05_lightgbm_storm) also uses soil moisture, adds the forecast rain still to fall from day 1
+to the target day, and weighs high-inflow days 5x in training, so big storms are not averaged away
+(Sep 2026 test, experiments/backtest_2026_sep_oct).
 """
 import sys
 from pathlib import Path
@@ -21,9 +24,11 @@ soil_builder = partial(builder, lag_cols={"sm_top": (7,), "sm_root": (7,)})
 
 
 class Model:
-    def __init__(self, horizon=7, params=None, soil=False):
-        self.kw = dict(backend="lightgbm", horizon=horizon, builder=soil_builder if soil else builder,
+    def __init__(self, horizon=7, params=None, soil=False, storm=False):
+        self.kw = dict(backend="lightgbm", horizon=horizon, builder=soil_builder if soil or storm else builder,
                        future_features=("rain",), params=params)
+        if storm:
+            self.kw.update(future_mode="both", heavy=5.0)
 
     def fit(self, df):
         self.m = DirectQuantile(**self.kw).fit(df)

@@ -37,6 +37,7 @@ MODELS = {
     f"{T1B}/08_hec_hms": ("hydro", False, False),
     f"{T1B}/05_lightgbm_daily": ("ml", False, False),
     f"{T1B}/05_lightgbm_daily_soil": ("ml", False, False),
+    f"{T1B}/05_lightgbm_storm": ("ml", False, False),
     f"{T1B}/06_lstm_seq2seq": ("rnn", True, False),
     f"{T1B}/07_chronos2_exog": ("fm", True, True),
 }
@@ -58,6 +59,7 @@ VARIANTS = {
     f"{T1}/11_timesfm_inflow": (f"{T1}/11_timesfm", {"covariates": ()}),
     f"{T1}/12_moirai_inflow": (f"{T1}/12_moirai", {"past_covariates": ()}),
     f"{T1B}/05_lightgbm_daily_soil": (f"{T1B}/05_lightgbm_daily", {"soil": True}),  # daily soil moisture
+    f"{T1B}/05_lightgbm_storm": (f"{T1B}/05_lightgbm_daily", {"storm": True}),  # soil + rain to fall + storm weight
 }
 
 
@@ -88,8 +90,16 @@ MONTHLY_ONLY = {f"{T1}/13_chronos2_finetune"}
 # Backtest refit interval in months (default 12); fewer refits keep slow models inside the job time limit
 REFIT_EVERY = {f"{T1}/13_chronos2_finetune": 36}
 MODELS.update({m + SUM: v for m, v in list(MODELS.items()) if m.startswith(T1) and m not in MONTHLY_ONLY})
-RAIN_MODELS = {f"{T1B}/03_gr4j", f"{T1B}/04_hbv", f"{T1B}/08_hec_hms", f"{T1B}/05_lightgbm_daily", f"{T1B}/05_lightgbm_daily_soil", f"{T1B}/06_lstm_seq2seq",
+RAIN_MODELS = {f"{T1B}/03_gr4j", f"{T1B}/04_hbv", f"{T1B}/08_hec_hms", f"{T1B}/05_lightgbm_daily", f"{T1B}/05_lightgbm_daily_soil", f"{T1B}/05_lightgbm_storm", f"{T1B}/06_lstm_seq2seq",
                f"{T1B}/07_chronos2_exog"}
+
+# Heavy-rain switch (user asked 2026-11-07 after the Sep 2026 storm): when the 7-day forecast rain (mean of the
+# sources) at a dam is at least HEAVY_RAIN_MM, the 1-7 day final forecast comes from a hydrology model, which
+# turns rain on wet soil into runoff; the data-driven models had learnt that heavy rain gives little inflow.
+# Backtest Jun 2024-Oct 2026 with the forecast rain issued on each day: 7-day MAE THREE 5.1 -> 4.4, PS 4.7 -> 4.2;
+# month-end Nowcast in heavy-rain spells THREE 41 -> 34, PS 34 -> 25 MCM; normal days not worse.
+HEAVY_RAIN_MM = 100.0
+HEAVY_RAIN_MODEL = {"DK": f"{T1B}/04_hbv", "KY": f"{T1B}/04_hbv", "NPL": f"{T1B}/04_hbv", "PS": f"{T1B}/03_gr4j"}
 
 # Steps every run records, in order (the HQ rooms follow them)
 # Month-end storage is not a step: it is worked out on the HQ result page from the final inflow forecast and

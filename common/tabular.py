@@ -21,15 +21,16 @@ def _inverse(kind, y):
 class DirectQuantile:
     def __init__(self, backend="lightgbm", horizon=12, features=None, future_features=(),
                  builder=None, transform="log1p", base_col=None, params=None, floor=0.0,
-                 future_mode="value", steps=None):
+                 future_mode="value", steps=None, heavy=None):
         """future_mode: "value" = the target step's value, "sum" = total from step 1 to the
         target step (e.g. rain still to fall), "both". steps: train only these steps ahead
-        (e.g. 1, 2, 3, 6, 12, 24, 48) and interpolate the others."""
+        (e.g. 1, 2, 3, 6, 12, 24, 48) and interpolate the others. heavy: training weight of rows whose target
+        is in the top 5% (high inflow), so big events are not averaged away; None = all rows weigh the same."""
         self.backend, self.horizon = backend, horizon
         self.future_mode, self.steps = future_mode, steps
         self.features, self.future_features = features, tuple(future_features)
         self.builder, self.transform, self.base_col = builder, transform, base_col
-        self.params, self.floor = params or {}, floor
+        self.params, self.floor, self.heavy = params or {}, floor, heavy
 
     def _x(self, df):
         f = self.builder(df) if self.builder else df[self.features]
@@ -84,6 +85,7 @@ class DirectQuantile:
     def fit(self, df):
         x = self._x(df)
         self.models = {}
+        top = np.nanquantile(df["y"].to_numpy(float), 0.95) if self.heavy else None
         for h in (self.steps or range(1, self.horizon + 1)):
             xh, y = self._design(x, df, h), self._target(df, x, h)
             ok = ~np.isnan(y)
@@ -91,7 +93,10 @@ class DirectQuantile:
                 ok &= ~np.isnan(x[self.base_col].to_numpy(float))
             if ok.sum() < 10:
                 continue
-            self.models[h] = [self._new(t).fit(xh[ok], y[ok]) for t in QUANTILES]
+            w = None
+            if self.heavy:
+                w = np.where(df["y"].shift(-(h - 1)).to_numpy(float) > top, self.heavy, 1.0)[ok]
+            self.models[h] = [self._new(t).fit(xh[ok], y[ok], sample_weight=w) for t in QUANTILES]
         return self
 
     def predict(self, df, horizon=None, future=None):

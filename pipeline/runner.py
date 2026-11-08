@@ -107,6 +107,8 @@ def daily_site(name, site, kind, source_mae=None):
         scores = source_backtest(mod, kw, df, archive, h) if archive else None
         if scores:
             source_mae = {k: v["mae"] for k, v in scores.items()}
+    if futures:
+        out["rain7"] = round(float(np.mean([f["rain"].to_numpy(float)[:h].sum() for f in futures.values()])), 1)
     if rain and futures:
         ens = load(f"{plan.T1B}/90_rain_source_ensemble").Model(base=m)
         if source_mae and all(s in source_mae for s in futures):

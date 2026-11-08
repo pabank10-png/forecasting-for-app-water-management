@@ -33,7 +33,26 @@ def station_rain(group):
     if not rows:
         return pd.Series(dtype=float)
     s = pd.DataFrame(rows).assign(date=lambda d: pd.to_datetime(d["date"]), rain=lambda d: d["rain_mm"].astype(float))
+    if group in QC_GROUPS:
+        return qc_mean(s.pivot_table(index="date", columns="code", values="rain"))
     return s.groupby("date")["rain"].mean()
+
+
+# Station groups whose daily mean leaves out gauges that read far below the others. Pluak Daeng: in Sep 2026
+# บ้านเขาคันทรง (STN1653) read 0 mm all year and บ้านคลองป่าหวาย 60 mm against 488 mm at อบต.ปลวกแดง, so the
+# mean the DK/KY/NPL models saw was about a third of the storm. Backtest Jun 2024-Oct 2026 (experiments/
+# backtest_2026_sep_oct): better for DK/KY/NPL; worse for Bo Thong (PS), so it is not used there.
+QC_GROUPS = {"pluakdaeng"}
+
+
+def qc_mean(p, share=0.25, min_top=50.0):
+    """Row mean of a date x station table, leaving out a station on days when its last-30-day total is under
+    `share` of the highest station's 30-day total (and that total is at least `min_top` mm)."""
+    p = p.reindex(pd.date_range(p.index.min(), p.index.max()))
+    r30 = p.rolling(30, min_periods=20).sum()
+    top = r30.max(axis=1)
+    bad = r30.lt(share * top, axis=0) & top.ge(min_top).to_numpy()[:, None]
+    return p.mask(bad).mean(axis=1).dropna()
 
 
 def daily(site):
