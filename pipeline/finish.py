@@ -167,19 +167,24 @@ def combine(task, site, results, ev, kind, previous):
     return out
 
 
+def rain7(site, results):
+    """7-day forecast rain (mm, mean of the sources) at a dam, as the daily rain models received it."""
+    return next((r["sites"][site]["rain7"] for r in results.values()
+                 if r.get("task") == plan.T1B and site in r.get("sites", {}) and r["sites"][site].get("rain7") is not None),
+                None)
+
+
 def heavy_rain_switch(site, results, fin):
     """Final 1-7 day forecast of a dam when its 7-day forecast rain is heavy: the hydrology model's forecast
     (plan.HEAVY_RAIN_MODEL). Returns (final, info); info is None when the switch does not apply."""
     hydro = plan.HEAVY_RAIN_MODEL.get(site)
-    rain7 = next((r["sites"][site]["rain7"] for r in results.values()
-                  if r.get("task") == plan.T1B and site in r.get("sites", {}) and r["sites"][site].get("rain7") is not None),
-                 None)
-    if hydro is None or rain7 is None or rain7 < plan.HEAVY_RAIN_MM:
+    r7 = rain7(site, results)
+    if hydro is None or r7 is None or r7 < plan.HEAVY_RAIN_MM:
         return fin, None
     rows = ((results.get(hydro) or {}).get("sites", {}).get(site) or {}).get("forecast")
     if not rows or any(r.get("p50") is None for r in rows):
         return fin, None
-    return [dict(r) for r in rows], {"rain7_mm": rain7, "threshold_mm": plan.HEAVY_RAIN_MM, "model": hydro}
+    return [dict(r) for r in rows], {"rain7_mm": r7, "threshold_mm": plan.HEAVY_RAIN_MM, "model": hydro}
 
 
 def final_forecast(task, site, results, choice):
@@ -339,6 +344,8 @@ def summarise(results, kind, previous_summary):
                 fin, heavy = heavy_rain_switch(site, results, fin)
             entry = {"history": history(task, site), "models": models, "gate": ev, "final": fin,
                      "errors": {m: r["errors"][site] for m, r in results.items() if site in r.get("errors", {})}}
+            if task == plan.T1B:
+                entry["rain7_mm"] = rain7(site, results)
             if heavy:
                 entry["heavy_rain"] = heavy
             if task == plan.T1 and fin and site in COMPONENTS:
