@@ -23,6 +23,7 @@ MODELS = {
     f"{T1}/11_timesfm": ("fm", True, True),
     f"{T1}/12_moirai": ("fm", True, True),
     f"{T1}/13_chronos2_finetune": ("fm", True, True),
+    f"{T1}/14_esp_blend": ("hydro", False, False),
     f"{T1}/03_sarimax_inflow": ("stat", False, False),
     f"{T1}/07_nbeats_inflow": ("dec", True, False),
     f"{T1}/08_nhits_inflow": ("dec", True, False),

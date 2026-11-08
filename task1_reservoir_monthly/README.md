@@ -17,6 +17,7 @@
 | [11_timesfm](11_timesfm/) | TimesFM 2.5 (Google) | Deep Learning (Foundation Model) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [12_moirai](12_moirai/) | Moirai 2.0 (Salesforce) | Deep Learning (Foundation Model) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [13_chronos2_finetune](13_chronos2_finetune/) | Chronos-2 fine-tune | Deep Learning (Foundation Model) | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
+| [14_esp_blend](14_esp_blend/) | ESP (HBV + GR4J) + Regression | Hydrology (Physics) + Statistics | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [90_conformal](90_conformal/) | Conformal prediction | Post-processing | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [91_ensemble](91_ensemble/) | Ensemble | Post-processing | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |
 | [95_water_balance](95_water_balance/) | Water Balance (runSc) | Water Balance | ใช้งานได้ ทดสอบกับข้อมูลจริงแล้ว |

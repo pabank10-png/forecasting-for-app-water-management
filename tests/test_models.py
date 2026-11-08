@@ -14,7 +14,8 @@ from common.registry import folders, load
 
 rng = np.random.default_rng(0)
 FAST = {"epochs": 2}
-NOT_SERIES = {"12_rod_psu_2d", "14_radar_nowcast", "95_water_balance", "95_water_balance_daily"}
+NOT_SERIES = {"12_rod_psu_2d", "14_radar_nowcast", "95_water_balance", "95_water_balance_daily",
+              "14_esp_blend"}  # ESP reads the real daily inflow and rain of the reservoir, not the synthetic table
 FOUNDATION = {"10_chronos2", "11_timesfm", "12_moirai", "13_chronos2_finetune", "07_chronos2_exog",
               "10_foundation_zero_shot"}
 
