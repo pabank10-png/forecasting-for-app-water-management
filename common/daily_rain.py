@@ -39,7 +39,9 @@ def _fetch(area, a, b):
     req = urllib.request.Request(URL.format(lat=lat, lon=lon, a=a, b=b), headers={"User-Agent": "WaterIntelligenceForecast/1.0"})
     with urllib.request.urlopen(req, timeout=120) as r:
         d = json.load(r)["daily"]
-    return pd.Series(d["precipitation_sum_era5"], index=pd.to_datetime(d["time"]), dtype=float).dropna()
+    # one model in the request -> plain key; several models -> key with the model suffix
+    vals = d.get("precipitation_sum", d.get("precipitation_sum_era5"))
+    return pd.Series(vals, index=pd.to_datetime(d["time"]), dtype=float).dropna()
 
 
 def era5(refresh=True):
