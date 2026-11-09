@@ -227,7 +227,7 @@ def step_mae(bt):
 
 def far_months(site, results, choice):
     """Months ahead where the Task 1 champion does not beat the Baseline in the 12-month backtest
-    (backtest 2016-2025: no model beats it beyond ~3 months). Those months of the final forecast use the
+    (backtest 2016-2025: no model beat it beyond ~3 months). Those months of the final forecast use the
     Baseline instead. Decided on monthly runs; daily runs carry the decision in the reused choice."""
     from .runner import M_STEPS_SCORED
     champ = choice.get("champion")
@@ -241,7 +241,7 @@ def far_months(site, results, choice):
     base = min(bases, key=lambda b: np.mean(list(step_mae(bt12(b)).values())))
     bm = step_mae(bt12(base))
     steps = [s for s in range(M_STEPS_SCORED + 1, 13) if s in cm and s in bm and not cm[s] < bm[s] * (1 - MARGIN)]
-    return {"baseline": base, "steps": steps, "from_backtest": "2016-2025",
+    return {"baseline": base, "steps": steps, "from_backtest": "2016-latest",
             "mae_champion": [round(cm.get(s), 3) if s in cm else None for s in range(1, 13)],
             "mae_baseline": [round(bm.get(s), 3) if s in bm else None for s in range(1, 13)]}
 

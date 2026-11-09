@@ -13,9 +13,11 @@ from . import data_prep, plan
 
 warnings.filterwarnings("ignore")
 
-# Backtest windows, as in the Excel model reports (2026-10-26)
-M_FIRST, M_LAST, M_STEPS_SCORED = "2016-01-01", "2025-12-31", 3
-D_FIRST, D_LAST, D_EVERY, D_RAIN_END = "2016-01-01", "2020-09-03", 5, "2020-09-10"
+# Backtest windows. Both grow every month (2026-11-09): origins from 2016 to the latest month/day with recorded
+# inflow, so recent years (and storms) count in the model choice. All history before each origin is still used:
+# training on only the last 15/10/5 years was the same or worse (experiments/train_window, 5 y about +12% MAE).
+M_FIRST, M_LAST, M_STEPS_SCORED = "2016-01-01", None, 3
+D_FIRST, D_EVERY, D_RAIN_END = "2016-01-01", 5, "2020-09-10"
 # Source test: archived forecast rain exists from about 2024; station rain fills the daily rain from May 2024
 S_FIRST, S_MIN_DAYS = "2024-06-01", 60
 
@@ -58,7 +60,8 @@ def monthly_site(name, site, kind):
     if kind == "monthly":
         n_obs = df["y"].last_valid_index() + 1
         d = df["date"].astype(str).str[:10]
-        origins = [i for i in df.index[:n_obs] if M_FIRST <= d[i] <= M_LAST and pd.notna(df["y"][i])]
+        origins = [i for i in df.index[:n_obs] if M_FIRST <= d[i] and (M_LAST is None or d[i] <= M_LAST)
+                   and pd.notna(df["y"][i])]
         bt = backtest.run(lambda: mod.Model(**kw), df.iloc[:n_obs], origins, 12,
                           refit_every=plan.REFIT_EVERY.get(name, 12))
         out["score"] = _score(bt, M_STEPS_SCORED)
@@ -160,15 +163,24 @@ def daily_site(name, site, kind, source_mae=None):
 
 
 def daily_frame_for_backtest(site, rain):
-    """Daily rows while the dam gauges recorded rain (to Sep 2020; the forecast rain is the observed rain).
+    """Daily rows to the last recorded inflow, the forecast rain being the observed rain. Rain: the dam gauges to
+    Sep 2020, then the station rain the live runs use (data_prep.daily, from 2024), and the days between filled
+    with the catchment rain of common.daily_rain (district month totals spread with the ERA5 daily pattern).
     A reservoir without dam rain (PS) is tested on its RID record instead, by the models that need no rain."""
     from common.data import daily_frame
-    df = daily_frame(site)
-    if df["rain"].notna().sum() > 1500:
-        return df[df["date"] <= D_RAIN_END].reset_index(drop=True), D_LAST
-    if rain:
+    gauged = daily_frame(site)["rain"].notna().sum() > 1500
+    if not gauged and rain:
         return None, None
+    df = data_prep.daily(site) if gauged else daily_frame(site)
     df = df.iloc[:df["y"].last_valid_index() + 1].reset_index(drop=True)
+    if gauged:
+        gap = df["rain"].isna() & (df["date"] > D_RAIN_END)
+        try:
+            from common.daily_rain import daily_rain
+            df.loc[gap, "rain"] = df.loc[gap, "date"].map(daily_rain(site)).to_numpy()
+        except Exception as e:  # noqa: BLE001 - without ERA5 keep the gauge years only, as before
+            print(f"daily backtest {site}: rain fill failed ({type(e).__name__}), test to Sep 2020", flush=True)
+            df = df[df["date"] <= D_RAIN_END].reset_index(drop=True)
     return df, str(df["date"].iloc[-8])[:10]
 
 

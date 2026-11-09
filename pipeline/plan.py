@@ -4,7 +4,7 @@ daily   : Task 1 monthly models forecast the current month (month-end Nowcast) a
           Task 1B daily models forecast inflow 1-7 days with forecast rain. Uses the scores and
           champion from the latest monthly run.
 monthly : Task 1 forecasts 12 months, and every model also runs its rolling backtest
-          (2016-2025 monthly, 2016-2020 daily) so the gate, weights and champion are chosen again.
+          (2016 to the latest recorded month / day, growing each month) so the gate, weights and champion are chosen again.
 """
 T1, T1B = "task1_reservoir_monthly", "task1b_reservoir_daily"
 

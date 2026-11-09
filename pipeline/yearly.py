@@ -73,8 +73,11 @@ def tables(bt):
     return pd.DataFrame(rows), st
 
 
-def averages(stats, last_year=2025):
-    """One row of averages over the complete years (stats from tables())."""
+def averages(stats, last_year=None):
+    """One row of averages over the complete years (stats from tables()); default: up to last calendar year."""
+    if last_year is None:
+        import datetime as dt
+        last_year = dt.date.today().year - 1
     s = stats[stats["ปี"] <= last_year]
     if not len(s):
         return {}
