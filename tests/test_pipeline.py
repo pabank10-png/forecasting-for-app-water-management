@@ -168,6 +168,28 @@ fin, info = finish.heavy_rain_switch("NPL", res, ml_rows)
 assert fin is ml_rows and info is None
 print("heavy rain switch ok")
 
+
+# Storm Trigger: months 1-2 raised to the ESP with the storm rain, never lowered, later months untouched
+def frow(k, d, p50):
+    return {"step": k, "date": d, "p10": p50 * 0.5, "p50": p50, "p90": p50 * 2}
+
+
+ds = ["2026-09-30", "2026-10-31", "2026-11-30"]
+out = {"tasks": {plan.T1: {"THREE": {"final": [frow(1, ds[0], 46.0), frow(2, ds[1], 80.0), frow(3, ds[2], 30.0)]},
+                           "PS": {"final": [frow(1, ds[0], 52.0)]}}}}
+res = {plan.STORM_MODEL: {"task": plan.T1, "sites": {
+    "THREE": {"storm_rain7": 204.0, "storm": [frow(1, ds[0], 94.0), frow(2, ds[1], 60.0)]},
+    "PS": {"storm_rain7": 40.0}}}}
+finish.apply_storm(out, res)
+fin = out["tasks"][plan.T1]["THREE"]["final"]
+assert fin[0]["p50"] == 94.0 and fin[0]["source"] == "storm_trigger" and fin[0]["p90"] == 188.0
+assert fin[1]["p50"] == 80.0 and "source" not in fin[1] and fin[2]["p50"] == 30.0
+info = out["tasks"][plan.T1]["THREE"]["storm_trigger"]
+assert info["rain7_mm"] == 204.0 and [c["step"] for c in info["changed"]] == [1]
+ps = out["tasks"][plan.T1]["PS"]
+assert ps["final"][0]["p50"] == 52.0 and ps["storm_rain7_mm"] == 40.0 and "storm_trigger" not in ps
+print("storm trigger ok")
+
 # Station QC: a dead gauge (0 mm) is left out once the others have had real rain
 days = pd.date_range("2026-08-01", periods=60)
 tab = pd.DataFrame({"good": 10.0, "dead": 0.0}, index=days)

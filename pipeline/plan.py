@@ -102,6 +102,17 @@ RAIN_MODELS = {f"{T1B}/03_gr4j", f"{T1B}/04_hbv", f"{T1B}/08_hec_hms", f"{T1B}/0
 HEAVY_RAIN_MM = 100.0
 HEAVY_RAIN_MODEL = {"DK": f"{T1B}/04_hbv", "KY": f"{T1B}/04_hbv", "NPL": f"{T1B}/04_hbv", "PS": f"{T1B}/03_gr4j"}
 
+# Storm Trigger (user asked 2026-11-09): when the 7-day forecast rain (mean of the sources, mean of the dams of a
+# site) reaches STORM_RAIN_MM, months 1-2 of the Task 1 final forecast are raised to the ESP of STORM_MODEL run with
+# that forecast rain (HBV + GR4J from today's soil state). The data-driven models have almost never seen a storm this
+# size (7-day rain >= 200 mm only Oct 2013 in 1994-2026). Test with WN3 forecasts Jan 2024-Oct 2026, origins on day
+# 1/11/21: fires once (21 Sep 2026: THREE 46 -> 94, actual 140; PS 52 -> 116, actual 168), no false alarm;
+# at 100 mm it gave one false alarm per site. It only ever raises the forecast, never lowers it.
+STORM_RAIN_MM = 150.0
+STORM_DAYS = 7
+STORM_MODEL = f"{T1}/14_esp_blend"
+STORM_STEPS = 2
+
 # Steps every run records, in order (the HQ rooms follow them)
 # Month-end storage is not a step: it is worked out on the HQ result page from the final inflow forecast and
 # the outflow / transfer the user types in (water-dashboard rule), so the run only stores its starting point.

@@ -50,6 +50,11 @@ def monthly_site(name, site, kind):
     m = mod.Model(**kw).fit(df)
     fc = m.predict(df, h)
     out = {"forecast": _rows(fc, data_prep.month_ends(df["date"].iloc[-1], h))}
+    if name == plan.STORM_MODEL:
+        try:
+            out.update(storm_forecast(m, df, h))
+        except Exception as e:  # noqa: BLE001 - the trigger is optional, the normal forecast stays
+            out["storm_error"] = f"{type(e).__name__}: {e}"[:200]
     if kind == "monthly":
         n_obs = df["y"].last_valid_index() + 1
         d = df["date"].astype(str).str[:10]
@@ -59,6 +64,26 @@ def monthly_site(name, site, kind):
         out["score"] = _score(bt, M_STEPS_SCORED)
         out["bt"] = _bt_json(bt, M_STEPS_SCORED)
         out["bt12"] = _bt_json(bt)  # all 12 steps, for the fixed-in-January vs rolling sheet
+    return out
+
+
+def storm_forecast(m, df, h):
+    """Storm Trigger: 7-day forecast rain per dam of the site (mean of the sources) from the day after its last
+    daily inflow. When the site mean reaches plan.STORM_RAIN_MM, the ESP forecast with that rain."""
+    rain, totals = {}, []
+    for part, p in m.parts.items():
+        first = p.d.index[-1] + pd.Timedelta(days=1)
+        src = data_prep.forecast_rain(part, first, plan.STORM_DAYS)
+        if not src:
+            return {}
+        mean = np.mean([f["rain"].to_numpy(float) for f in src.values()], axis=0)
+        rain[part] = pd.Series(mean, index=pd.date_range(first, periods=plan.STORM_DAYS, freq="D"))
+        totals.append(float(mean.sum()))
+    r7 = round(float(np.mean(totals)), 1)
+    out = {"storm_rain7": r7}
+    if r7 >= plan.STORM_RAIN_MM:
+        fc = m.predict(df, h, future=rain)
+        out["storm"] = _rows(fc, data_prep.month_ends(df["date"].iloc[-1], h))[:plan.STORM_STEPS]
     return out
 
 

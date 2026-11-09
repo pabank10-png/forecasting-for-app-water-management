@@ -93,7 +93,8 @@ def cmd_plan(a):
         if a.kind == "daily" and m in plan.MONTHLY_ONLY:
             reused[m] = list(prints[m])
             continue
-        sites = [s for s, h in prints[m].items() if old.get(m, {}).get(s) != h]
+        # the Storm Trigger model reads today's forecast rain, which the fingerprint does not see: always run it
+        sites = [s for s, h in prints[m].items() if old.get(m, {}).get(s) != h or m == plan.STORM_MODEL]
         if sites:
             todo[m] = sites
         if len(sites) < len(prints[m]):

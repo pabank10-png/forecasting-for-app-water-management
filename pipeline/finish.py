@@ -350,6 +350,29 @@ def apply_nowcast(out):
         fin[0] = {**fin[0], **{q: nc[q] for q in ("p10", "p50", "p90")}, "source": "daily_nowcast"}
 
 
+def apply_storm(out, results):
+    """Storm Trigger: raise months 1-2 of a Task 1 final forecast to the ESP run with the heavy forecast rain
+    (plan.STORM_*). Never lowers a month. Records what it did in entry["storm_trigger"]."""
+    r = results.get(plan.STORM_MODEL) or {}
+    for site, entry in out["tasks"].get(plan.T1, {}).items():
+        got = (r.get("sites") or {}).get(site) or {}
+        if got.get("storm_rain7") is not None:
+            entry["storm_rain7_mm"] = got["storm_rain7"]
+        storm, fin = got.get("storm"), entry.get("final")
+        if not storm or not fin:
+            continue
+        changed = []
+        for i, row in enumerate(storm[:plan.STORM_STEPS]):
+            if i >= len(fin) or row.get("p50") is None or row["date"] != fin[i]["date"]:
+                continue
+            if row["p50"] > (fin[i].get("p50") or 0):
+                changed.append({"step": i + 1, "date": row["date"], "before_p50": fin[i].get("p50"), "after_p50": row["p50"]})
+                fin[i] = {**fin[i], **{q: max(row[q], fin[i].get(q) or 0) for q in ("p10", "p50", "p90")},
+                          "source": "storm_trigger"}
+        entry["storm_trigger"] = {"rain7_mm": got["storm_rain7"], "threshold_mm": plan.STORM_RAIN_MM,
+                                  "model": plan.STORM_MODEL, "changed": changed}
+
+
 def extend_year(out, previous_summary):
     """Daily runs forecast Task 1 only 4 months ahead; carry the later months (up to 12) of the newest
     monthly run onto each site's final forecast, so the HQ always shows the whole year ahead."""
@@ -422,6 +445,7 @@ def summarise(results, kind, previous_summary):
                     entry["storage_error"] = f"{type(e).__name__}: {e}"[:200]
             out["tasks"].setdefault(task, {})[site] = entry
     apply_nowcast(out)
+    apply_storm(out, results)
     if kind != "monthly":
         extend_year(out, prev)
     return out

@@ -94,9 +94,10 @@ class Part:
             out[name] = st
         return out
 
-    def members(self, upto, months, years):
+    def members(self, upto, months, years, rain=None):
         """{member year: monthly totals (len(months))} from the day after `upto` to the end of the last month.
-        months: list of month-end Timestamps (the first may be the current, partial month)."""
+        months: list of month-end Timestamps (the first may be the current, partial month).
+        rain: optional Series (date -> mm) of forecast rain that replaces each member's rain on those days."""
         st = self.states(upto)
         end = months[-1]
         n = (end - upto).days
@@ -111,6 +112,9 @@ class Part:
                 continue
             P = self.P[ia:ia + n]
             days = pd.date_range(upto + pd.Timedelta(days=1), periods=n, freq="D")
+            if rain is not None:
+                f = rain.reindex(days).to_numpy(float)
+                P = np.where(np.isnan(f), P, f)
             D = days.dayofyear.to_numpy().astype(float)
             mon = days.to_period("M")
             tot = 0.0
@@ -184,12 +188,13 @@ class Model:
         f = np.where(np.isnan(f), 0.0, f)
         return max(self.qc[T.month] + np.r_[f, 1] @ c, 0.0) ** 2
 
-    def _esp(self, upto, months):
-        """Median over members of the summed parts (the first month counts only the days after `upto`)."""
+    def _esp(self, upto, months, rain=None):
+        """Median over members of the summed parts (the first month counts only the days after `upto`).
+        rain: optional {part: Series(date -> mm)} forecast rain used for those days in every member."""
         tot = None
         years = None
-        for p in self.parts.values():
-            m = p.members(upto, months, self._years(p, upto))
+        for name, p in self.parts.items():
+            m = p.members(upto, months, self._years(p, upto), (rain or {}).get(name))
             years = set(m) if years is None else years & set(m)
             tot = m if tot is None else {y: tot[y] + m[y] for y in years}
         if not years or len(years) < 5:
@@ -225,7 +230,10 @@ class Model:
 
     # ---------- predict ----------
     def predict(self, df, horizon=12, future=None):
-        """The last row of df is the month to forecast first (y empty); step 1 = that month."""
+        """The last row of df is the month to forecast first (y empty); step 1 = that month.
+        future: optional {part: Series(date -> mm)} of forecast daily rain (Storm Trigger). With it, months 1-2 are
+        the ESP alone (members' rain replaced by the forecast on those days), not averaged with the regression,
+        because the regression cannot see the storm."""
         row = df.iloc[-1]
         first = pd.Timestamp(row["date"])
         o = first - pd.offsets.MonthEnd(1)  # origin = end of the month before
@@ -241,7 +249,7 @@ class Model:
                 partial = sum(float(p.d["y"].loc[o + pd.Timedelta(days=1):upto].fillna(0).sum()) for p in self.parts.values())
         if upto >= months[0]:
             upto, partial = o, 0.0
-        e = self._esp(upto, months)
+        e = self._esp(upto, months, future)
         q0, r0 = q.get(o, np.nan), r.get(o, np.nan)
         p50, lo, hi = [], [], []
         for h in range(1, horizon + 1):
@@ -254,7 +262,7 @@ class Model:
                 hi.append(partial + (rest + 0.1) * np.exp(k[1]) - 0.1)
                 continue
             reg = self._regression(q0, r0, o, h)
-            v = reg if np.isnan(e[h - 1]) else 0.5 * (e[h - 1] + reg)  # too few member years: regression only
+            v = reg if np.isnan(e[h - 1]) else (e[h - 1] if future and h <= 2 else 0.5 * (e[h - 1] + reg))  # too few member years: regression only
             p50.append(v)
             lo.append((v + 0.1) * np.exp(k[0]) - 0.1)
             hi.append((v + 0.1) * np.exp(k[1]) - 0.1)
