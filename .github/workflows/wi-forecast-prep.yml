@@ -1,0 +1,138 @@
+# Water Intelligence collector (website repo pabank10-png/flood-intelligence, .github/workflows/hii-forecast-ingestion.yml).
+# Runs here because Actions minutes are free for public repos (12 Nov 2026); the code is checked out from the
+# private repo with DATA_REPO_TOKEN (read only). No artifacts are uploaded: everything here is public.
+# Started by cron-job.org (workflow_dispatch). Keep in step with the website repo's copy.
+name: 'Water Intelligence · Forecast preparation (HII, TMD, Open-Meteo, WeatherNext 3 and cyclones)'
+
+on:
+  # Triggered hourly at minute 23 by cron-job.org (Asia/Bangkok).
+  workflow_dispatch:
+    inputs:
+      probe_only:
+        description: Verify public HII access without touching storage
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hii-forecast-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Job-level so it also holds when ThaiWater snapshots calls this workflow (workflow-level concurrency is the
+    # caller's there): the hourly run and the called run never overlap and query BigQuery for the same run twice.
+    concurrency:
+      group: hii-forecast-ingest-job
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          persist-credentials: false
+      - name: Supabase base URL
+        env:
+          RAW: ${{ secrets.SUPABASE_URL }}
+        run: |
+          base="${RAW%/}"; base="${base%/rest/v1}"; echo "::add-mask::$base"; echo "SUPABASE_BASE=$base" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - id: install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prepare and verify TMD forecast grids
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_TMD_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: node_modules/.bin/vite-node scripts/run-tmd-forecast.mts
+      - name: Collect and verify latest HII forecast
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_HII_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: |
+          if [ "$PROBE_ONLY" = "true" ]; then
+            node_modules/.bin/vite-node scripts/run-hii-forecast.mts --probe
+          else
+            node_modules/.bin/vite-node scripts/run-hii-forecast.mts
+          fi
+      - name: Prepare and verify Open-Meteo forecast grids
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_OPENMETEO_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: node_modules/.bin/vite-node scripts/run-openmeteo-forecast.mts
+      - name: Prepare and verify WeatherNext 3 forecast grids
+        # Skips itself (exit 0) until the GCP_SA_KEY secret exists. BigQuery is queried only when a new
+        # 00/06/12/18 UTC run is published (about 0.3 GB per run, inside the free 1 TB/month).
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_TMD_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: node_modules/.bin/vite-node scripts/run-wn3-forecast.mts
+      - name: Prepare WeatherNext 3 map wind
+        # The map's WN3 wind choice: the 00Z/12Z runs only (~2 queries a day, ~1 GB each), own cap 100 GiB a month.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_OPENMETEO_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: node_modules/.bin/vite-node scripts/run-wn3-wind.mts
+      - name: Prepare tropical cyclone tracks (WeatherNext 2/3 + IBTrACS)
+        # Once a day (00 UTC run): WN2 over all of Asia finds storms (~4.4 GB), WN3 only in a box around each
+        # storm (~1 GB each, at most 4). Stops itself above 350 GB in a month. Skips until GCP_SA_KEY exists.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.probe_only != true && (github.event_name == 'workflow_dispatch' || vars.ENABLE_TMD_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: node_modules/.bin/vite-node scripts/run-cyclones.mts
+      - name: Prepare cyclone rain layer (WeatherNext 3)
+        # Once a day (00 UTC run): WN3 1-hour rain over the cyclone view (~2–3 GB). Its own cap: 150 GB a month.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_TMD_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: node_modules/.bin/vite-node scripts/run-cyclone-rain.mts
+      - name: Prepare actual rain for cyclone tracking (NASA IMERG)
+        # NASA GIBS IMERG Early 30-min images (public, no key, no BigQuery): last 21 days, hourly, ~6 h behind real time.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_OPENMETEO_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: node_modules/.bin/vite-node scripts/run-imerg-rain.mts
+      - name: Prepare ECMWF ensemble cyclone tracks
+        # ECMWF open data (free, CC BY 4.0): 51-member tropical-cyclone tracks, 00/12 UTC runs. No BigQuery.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_OPENMETEO_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check eccodes ecmwf-opendata
+          out="$RUNNER_TEMP/ecmwf-tc.json"
+          python3 scripts/ecmwf_tc_tracks.py "$out"
+          if [ -f "$out" ]; then node_modules/.bin/vite-node scripts/run-ecmwf-tc.mts "$out"; fi
+      - name: Prepare and verify ECMWF map wind
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && (github.event_name == 'workflow_dispatch' || vars.ENABLE_OPENMETEO_FORECAST_INGESTION == 'true') }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: node_modules/.bin/vite-node scripts/run-ecmwf-wind.mts

@@ -1,0 +1,61 @@
+# Water Intelligence collector (website repo pabank10-png/flood-intelligence, .github/workflows/thaiwater-ingestion.yml).
+# Runs here because Actions minutes are free for public repos (12 Nov 2026); the code is checked out from the
+# private repo with DATA_REPO_TOKEN (read only). No artifacts are uploaded: everything here is public.
+# Started by cron-job.org (workflow_dispatch). Keep in step with the website repo's copy.
+name: 'Water Intelligence · ThaiWater snapshots'
+
+on:
+  # Triggered every 30 minutes by cron-job.org (Asia/Bangkok).
+  workflow_dispatch:
+
+concurrency:
+  group: thaiwater-snapshots
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Forecast preparation is no longer called from here: cron-job.org starts it hourly at :23 on its own.
+  # Calling it here too ran it 3 times an hour and used up the free Actions minutes (12 Nov 2026).
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          persist-credentials: false
+      - name: Supabase base URL
+        env:
+          RAW: ${{ secrets.SUPABASE_URL }}
+        run: |
+          base="${RAW%/}"; base="${base%/rest/v1}"; echo "::add-mask::$base"; echo "SUPABASE_BASE=$base" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch and persist ThaiWater snapshots
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+        run: node scripts/ingest-thaiwater.mjs
+      - name: Install observation preparation runtime
+        # Snapshot archival errors remain red, but cannot block independent RID collection.
+        if: ${{ !cancelled() }}
+        id: preparation_runtime
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Retain actual one-hour rain from the existing regional bulk feed
+        if: ${{ !cancelled() && steps.preparation_runtime.outcome == 'success' }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          RAIN_MODE: bulk
+          RAIN_AUDIT_DIR: ${{ runner.temp }}/hourly-rain-audit
+        run: node_modules/.bin/vite-node scripts/run-hourly-rain-history.mts
+      - name: Prepare complete provincial observation pages
+        if: ${{ !cancelled() && steps.preparation_runtime.outcome == 'success' }}
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+        run: node_modules/.bin/vite-node scripts/run-prepare-observations.mts

@@ -1,0 +1,54 @@
+# Water Intelligence collector (website repo pabank10-png/flood-intelligence, .github/workflows/soil-moisture.yml).
+# Runs here because Actions minutes are free for public repos (12 Nov 2026); the code is checked out from the
+# private repo with DATA_REPO_TOKEN (read only). No artifacts are uploaded: everything here is public.
+# Started by cron-job.org (workflow_dispatch). Keep in step with the website repo's copy.
+name: 'Water Intelligence · Soil moisture (ERA5 + ECMWF via Open-Meteo)'
+
+on:
+  # cron-job.org: daily at 14:35 Asia/Bangkok; history_only=true at 02:05/08:05/20:05.
+  # Keep history batches spread out to respect the provider's daily request budget.
+  workflow_dispatch:
+    inputs:
+      history_per_run:
+        description: Cells whose past years (and missing normal) are read this run (each uses a large share of the free quota)
+        type: string
+        default: "8"
+      history_only:
+        description: Skip the daily rows and only read past years
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soil-moisture
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          persist-credentials: false
+      - name: Supabase base URL
+        env:
+          RAW: ${{ secrets.SUPABASE_URL }}
+        run: |
+          base="${RAW%/}"; base="${base%/rest/v1}"; echo "::add-mask::$base"; echo "SUPABASE_BASE=$base" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Store recent and forecast soil moisture per cell
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          SOIL_HISTORY_PER_RUN: ${{ inputs.history_per_run }}
+          SOIL_HISTORY_ONLY: ${{ inputs.history_only || (github.event_name == 'schedule' && github.event.schedule != '35 7 * * *') }}
+        run: node_modules/.bin/vite-node scripts/run-soil-moisture.mts
