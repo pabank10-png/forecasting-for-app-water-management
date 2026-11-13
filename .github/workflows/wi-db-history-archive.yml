@@ -1,0 +1,52 @@
+# Water Intelligence job (website repo pabank10-png/flood-intelligence, .github/workflows/db-history-archive.yml).
+# Runs here because Actions minutes are free for public repos (13 Nov 2026). Archives still go to the private
+# Releases of flood-intelligence (DATA_REPO_TOKEN), which the database requires before it deletes rows.
+# Started by cron-job.org. Keep in step with the website repo's copy.
+name: 'Water Intelligence · Database history archive (keep 60 days)'
+
+on:
+  # cron-job.org: 02:41 Asia/Bangkok.
+  workflow_dispatch:
+    inputs:
+      max_days:
+        description: Days per unit in this run (1-400)
+        type: string
+        default: "40"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-history-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          persist-credentials: false
+      - name: Supabase base URL and website commit
+        env:
+          RAW: ${{ secrets.SUPABASE_URL }}
+        run: |
+          base="${RAW%/}"; base="${base%/rest/v1}"; echo "::add-mask::$base"; echo "SUPABASE_BASE=$base" >> "$GITHUB_ENV"
+          echo "WEBSITE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Move rows older than 60 days to private Releases (verified before delete)
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          GITHUB_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+          GITHUB_REPOSITORY: pabank10-png/flood-intelligence
+          GITHUB_SHA: ${{ env.WEBSITE_SHA }}
+          DB_ARCHIVE_MAX_DAYS: ${{ inputs.max_days }}
+        run: node_modules/.bin/vite-node scripts/run-archive-db-history.mts

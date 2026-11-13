@@ -1,0 +1,58 @@
+# Water Intelligence collector (website repo pabank10-png/flood-intelligence, .github/workflows/daily-rainfall-history.yml).
+# Runs here because Actions minutes are free for public repos (13 Nov 2026); code checked out from the private
+# repo with DATA_REPO_TOKEN (read only). Run evidence is kept as an artifact (public data, user OK 13 Nov).
+# Started by cron-job.org. Keep in step with the website repo's copy.
+name: 'Water Intelligence · Regional daily rainfall history'
+
+on:
+  # cron-job.org: 10:17 Asia/Bangkok.
+  workflow_dispatch:
+    inputs:
+      month:
+        description: Report month YYYY-MM (empty uses the latest closed report month)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regional-daily-rainfall-history
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          persist-credentials: false
+      - name: Supabase base URL and website commit
+        env:
+          RAW: ${{ secrets.SUPABASE_URL }}
+        run: |
+          base="${RAW%/}"; base="${base%/rest/v1}"; echo "::add-mask::$base"; echo "SUPABASE_BASE=$base" >> "$GITHUB_ENV"
+          echo "WEBSITE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Collect daily reports and verify Supabase receipts
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          RAINFALL_MONTH: ${{ inputs.month }}
+          RAINFALL_OUTPUT_DIR: ${{ runner.temp }}/daily-rainfall-history
+        run: node_modules/.bin/vite-node scripts/run-regional-daily-rainfall.mts
+      - name: Keep source evidence and run summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-rainfall-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/daily-rainfall-history/*.json
+          retention-days: 14
+          if-no-files-found: warn

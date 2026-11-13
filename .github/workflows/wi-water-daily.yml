@@ -1,0 +1,52 @@
+# Water Intelligence collector (website repo pabank10-png/flood-intelligence, .github/workflows/water-daily.yml).
+# Runs here because Actions minutes are free for public repos (13 Nov 2026). Code is checked out from the private
+# repo with DATA_REPO_TOKEN; raw readings still go to the private Releases of flood-intelligence (same token),
+# because the database only accepts archive proofs from there. Started by cron-job.org. Keep in step.
+name: 'Water Intelligence · Daily water level and discharge history'
+
+on:
+  # cron-job.org: 00:40 Asia/Bangkok; stores the previous day.
+  workflow_dispatch:
+    inputs:
+      day:
+        description: Bangkok day to store (YYYY-MM-DD); empty means yesterday
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: water-daily
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          persist-credentials: false
+      - name: Supabase base URL and website commit
+        env:
+          RAW: ${{ secrets.SUPABASE_URL }}
+        run: |
+          base="${RAW%/}"; base="${base%/rest/v1}"; echo "::add-mask::$base"; echo "SUPABASE_BASE=$base" >> "$GITHUB_ENV"
+          echo "WEBSITE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Archive raw readings, then store one hourly row per station
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_BASE }}
+          SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
+          GITHUB_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+          GITHUB_REPOSITORY: pabank10-png/flood-intelligence
+          GITHUB_SHA: ${{ env.WEBSITE_SHA }}
+          WATER_DAY: ${{ inputs.day }}
+        run: node_modules/.bin/vite-node scripts/run-water-daily.mts
