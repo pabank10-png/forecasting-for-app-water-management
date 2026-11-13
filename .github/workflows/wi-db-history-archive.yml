@@ -1,6 +1,6 @@
 # Water Intelligence job (website repo pabank10-png/flood-intelligence, .github/workflows/db-history-archive.yml).
-# Runs here because Actions minutes are free for public repos (13 Nov 2026). Archives still go to the private
-# Releases of flood-intelligence (DATA_REPO_TOKEN), which the database requires before it deletes rows.
+# Runs here because Actions minutes are free for public repos (13 Nov 2026). Archives go to this repo's Releases
+# (db-history-YYYY-MM; user OK 13 Nov 2026); the database checks each one before it deletes rows.
 # Started by cron-job.org. Keep in step with the website repo's copy.
 name: 'Water Intelligence · Database history archive (keep 60 days)'
 
@@ -14,7 +14,7 @@ on:
         default: "40"
 
 permissions:
-  contents: read
+  contents: write # create/upload this repo's Releases (public archives, user OK 13 Nov 2026)
 
 concurrency:
   group: db-history-archive
@@ -41,11 +41,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Move rows older than 60 days to private Releases (verified before delete)
+      - name: Move rows older than 60 days to Releases (verified before delete)
         env:
           SUPABASE_URL: ${{ env.SUPABASE_BASE }}
           SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
-          ARCHIVE_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           DB_ARCHIVE_MAX_DAYS: ${{ inputs.max_days }}
-        # The runner does not let step env replace GITHUB_*; set them for the script process only.
-        run: GITHUB_TOKEN="$ARCHIVE_TOKEN" GITHUB_REPOSITORY=pabank10-png/flood-intelligence GITHUB_SHA="$WEBSITE_SHA" node_modules/.bin/vite-node scripts/run-archive-db-history.mts
+        run: node_modules/.bin/vite-node scripts/run-archive-db-history.mts

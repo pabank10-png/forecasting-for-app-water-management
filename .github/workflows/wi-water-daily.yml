@@ -1,7 +1,7 @@
 # Water Intelligence collector (website repo pabank10-png/flood-intelligence, .github/workflows/water-daily.yml).
 # Runs here because Actions minutes are free for public repos (13 Nov 2026). Code is checked out from the private
-# repo with DATA_REPO_TOKEN; raw readings still go to the private Releases of flood-intelligence (same token),
-# because the database only accepts archive proofs from there. Started by cron-job.org. Keep in step.
+# repo with DATA_REPO_TOKEN; raw readings go to this repo's
+# Releases (water-observations-YYYY-MM; public data, user OK 13 Nov 2026). Started by cron-job.org. Keep in step.
 name: 'Water Intelligence · Daily water level and discharge history'
 
 on:
@@ -14,7 +14,7 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write # create/upload this repo's Releases (public archives, user OK 13 Nov 2026)
 
 concurrency:
   group: water-daily
@@ -45,7 +45,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ env.SUPABASE_BASE }}
           SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
-          ARCHIVE_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           WATER_DAY: ${{ inputs.day }}
-        # The runner does not let step env replace GITHUB_*; set them for the script process only.
-        run: GITHUB_TOKEN="$ARCHIVE_TOKEN" GITHUB_REPOSITORY=pabank10-png/flood-intelligence GITHUB_SHA="$WEBSITE_SHA" node_modules/.bin/vite-node scripts/run-water-daily.mts
+        run: node_modules/.bin/vite-node scripts/run-water-daily.mts
