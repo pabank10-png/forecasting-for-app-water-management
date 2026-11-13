@@ -45,8 +45,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ env.SUPABASE_BASE }}
           SUPABASE_BACKEND_KEY: ${{ secrets.SUPABASE_BACKEND_KEY }}
-          GITHUB_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
-          GITHUB_REPOSITORY: pabank10-png/flood-intelligence
-          GITHUB_SHA: ${{ env.WEBSITE_SHA }}
+          ARCHIVE_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
           WATER_DAY: ${{ inputs.day }}
-        run: node_modules/.bin/vite-node scripts/run-water-daily.mts
+        # The runner does not let step env replace GITHUB_*; set them for the script process only.
+        run: GITHUB_TOKEN="$ARCHIVE_TOKEN" GITHUB_REPOSITORY=pabank10-png/flood-intelligence GITHUB_SHA="$WEBSITE_SHA" node_modules/.bin/vite-node scripts/run-water-daily.mts
