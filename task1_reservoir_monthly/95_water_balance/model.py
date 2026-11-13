@@ -6,7 +6,7 @@ Outflow and diversion are the values the user types in on the website.
 
 RESERVOIRS = {
     "THREE": {"capacity": 318.1, "dead": 31.7},
-    "PS": {"capacity": 295.0, "dead": 20.0},
+    "PS": {"capacity": 330.0, "dead": 20.0},
 }
 
 

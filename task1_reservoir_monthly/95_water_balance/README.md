@@ -10,7 +10,7 @@
 
 ## สูตร
 S(ปลาย) = clamp( S(ต้น) + inflow×multiplier + diversion − outflow , 0 , capacity )
-3 อ่างรวม: capacity 318.1, Hard Red 31.7 MCM / ประแสร์: capacity 295, Hard Red 20 MCM (ค่าใน `RESERVOIRS` ของ `model.py`)
+3 อ่างรวม: capacity 318.1, Hard Red 31.7 MCM / ประแสร์: capacity 330 (ตาม water-dashboard; ปริมาตรจริงเคยถึง 325.6 เมื่อสิ้น ก.ย. 2026), Hard Red 20 MCM (ค่าใน `RESERVOIRS` ของ `model.py`)
 
 ## ตัวอย่างการคำนวณ (ข้อมูลจริง ต.ค. 2026, 3 อ่างรวม)
 น้ำต้นเดือน 285.545, outflow ทั้งเดือน (สมมติเท่าที่ปล่อยจริงถึงตอนนี้) 125.936, ไม่มีน้ำผัน, multiplier = 1

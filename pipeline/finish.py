@@ -278,7 +278,32 @@ def storage_base(site, task_scores, champion):
     sc = (task_scores or {}).get(champion) or {}
     return {"date": day.strftime("%Y-%m-%d"), "storage_today": round(today, 3), "inflow_month_to_date": round(mtd, 3),
             "capacity": wb.RESERVOIRS[site]["capacity"], "dead": wb.RESERVOIRS[site]["dead"],
-            "inflow_mae_steps": sc.get("mae_steps"), "inflow_mae": sc.get("mae")}
+            "inflow_mae_steps": sc.get("mae_steps"), "inflow_mae": sc.get("mae"),
+            "inflow_years": inflow_years(site), "month_end": month_ends(frames, day)}
+
+
+def inflow_years(site, first=2006):
+    """Recorded monthly inflow by calendar year, {year: [Jan..Dec]} (None where not recorded yet): the HQ storage
+    scenarios can use a past year, or the 5/10-year average, as the inflow instead of a forecast."""
+    df = data_prep.monthly(site).dropna(subset=["y"])
+    df = df[df["date"].dt.year >= first]
+    out = {}
+    for d, y in zip(df["date"], df["y"]):
+        out.setdefault(str(d.year), [None] * 12)[d.month - 1] = round(float(y), 3)
+    return out
+
+
+def month_ends(frames, day, months=14):
+    """Recorded storage on the last day of each finished month before `day`, newest last, summed over the parts."""
+    s = None
+    for f in frames:
+        g = f.dropna(subset=["storage"]).set_index("date")["storage"]
+        s = g if s is None else s.add(g, fill_value=float("nan"))
+    s = s.dropna()
+    s = s[s.index < day.replace(day=1)]
+    last = s.groupby(s.index.to_period("M")).tail(1)
+    last = last[last.index.is_month_end].tail(months)
+    return [{"date": d.strftime("%Y-%m-%d"), "storage": round(float(v), 3)} for d, v in last.items()]
 
 
 # Daily Nowcast: P10/P90 of the month total = seen + (P50 - seen) x these ratios, from the 2016-2020 backtest
