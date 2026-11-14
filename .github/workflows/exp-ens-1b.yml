@@ -1,0 +1,70 @@
+name: exp-ens-1b
+# Experiment (Nov 2026): Task 1B daily inflow models fed each ECMWF ENS member's past forecast rain
+# (ensemble streamflow test). Manual only; needs the run id of an exp-ens-rain run. Output: workflow artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      ens_run_id:
+        description: exp-ens-rain run id
+        required: true
+permissions:
+  contents: read
+  actions: read
+env:
+  FORECAST_DATA_DIR: ${{ github.workspace }}/data/forecasting/1-reservoir-inflow/data/csv
+  PYTHONUNBUFFERED: "1"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        site: [DK, KY, NPL, PS]
+        model:
+          - {name: task1b_reservoir_daily/01_persistence, group: base}
+          - {name: task1b_reservoir_daily/02_day_climatology, group: base}
+          - {name: task1b_reservoir_daily/03_gr4j, group: base}
+          - {name: task1b_reservoir_daily/04_hbv, group: base}
+          - {name: task1b_reservoir_daily/08_hec_hms, group: base}
+          - {name: task1b_reservoir_daily/05_lightgbm_daily, group: base}
+          - {name: task1b_reservoir_daily/05_lightgbm_daily_soil, group: base}
+          - {name: task1b_reservoir_daily/05_lightgbm_storm, group: base}
+          - {name: task1b_reservoir_daily/06_lstm_seq2seq, group: torch}
+          - {name: task1b_reservoir_daily/07_chronos2_exog, group: foundation}
+    name: ${{ matrix.model.name }} ${{ matrix.site }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/${{ matrix.model.group }}.txt
+      - run: |
+          pip install -r requirements/${{ matrix.model.group }}.txt
+          if [ "${{ matrix.model.group }}" = foundation ]; then pip install --no-deps uni2ts; fi
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: data
+          sparse-checkout: forecasting/1-reservoir-inflow
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/forecasting/1-reservoir-inflow/data/raw/soil_moisture_daily.csv
+          key: soil-daily-none
+          restore-keys: soil-daily-
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.ens_run_id }}
+          github-token: ${{ github.token }}
+          pattern: ens-*
+          path: ens
+      - id: out
+        run: echo "name=$(basename ${{ matrix.model.name }})-${{ matrix.site }}" >> "$GITHUB_OUTPUT"
+      - run: python experiments/ens_rain/run_1b.py ${{ matrix.model.name }} ${{ matrix.site }} ens ${{ steps.out.outputs.name }}.csv.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: res-${{ steps.out.outputs.name }}
+          path: ${{ steps.out.outputs.name }}.csv.gz
+          retention-days: 14
