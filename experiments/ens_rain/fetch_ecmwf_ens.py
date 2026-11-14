@@ -1,5 +1,5 @@
 """Experiment (Nov 2026): ECMWF ENS 51-member daily rain at the reservoirs, from the free open-data archive on AWS
-(s3://ecmwf-forecasts, Feb 2023 on). Only the tp (total precipitation) messages are range-downloaded.
+(Google Cloud mirror gs://ecmwf-open-data, Feb 2024 on). Only the tp (total precipitation) messages are range-downloaded.
 
 Origins are days 1, 6, 11, 16, 21, 26 of each month; each uses the 00Z run of the day before, so day 1 of the
 forecast for origin T is lead day 2 of that run (what would really be available on the morning of T).
@@ -19,14 +19,15 @@ import urllib.request
 import eccodes
 import numpy as np
 
-BASE = "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com"
+# Google Cloud mirror of the ECMWF open data (the AWS bucket answered SlowDown to almost every request)
+BASE = "https://storage.googleapis.com/ecmwf-open-data"
 DIRS = ["ifs/0p25/enfo", "0p25/enfo", "0p4-beta/enfo"]
 POINTS = {"DK": (12.890302, 101.219914), "NPL": (12.934647, 101.297011), "KY": (12.964319, 101.313238),
           "PS": (12.977205, 101.558297), "pluakdaeng": (12.99, 101.30), "bothong": (13.05, 101.58)}
 STEPS = list(range(24, 361, 24))
 
 
-def get(url, rng=None, tries=8):
+def get(url, rng=None, tries=12):
     for k in range(tries):
         try:
             req = urllib.request.Request(url, headers={"Range": f"bytes={rng[0]}-{rng[1]}"} if rng else {})
@@ -35,14 +36,14 @@ def get(url, rng=None, tries=8):
         except urllib.error.HTTPError as e:
             if e.code in (403, 404):  # S3 answers 403 for a key that does not exist
                 return None
-            time.sleep(2 + 3 * k)
+            time.sleep(min(60, 2 ** k))
         except Exception:
-            time.sleep(2 + 3 * k)
+            time.sleep(min(60, 2 ** k))
     raise RuntimeError(f"failed {url} {rng}")
 
 
 def origins():
-    out, d = [], dt.date(2023, 2, 1)
+    out, d = [], dt.date(2024, 2, 6)
     while d <= dt.date.today() - dt.timedelta(days=2):
         if d.day in (1, 6, 11, 16, 21, 26):
             out.append(d)
@@ -94,7 +95,7 @@ def run_init(init):
         return None
     acc = {}  # (step, member) -> {point: m}
     jobs = []
-    with cf.ThreadPoolExecutor(12) as ex:
+    with cf.ThreadPoolExecutor(8) as ex:
         for s in STEPS:
             stem = f"{BASE}/{ds}/00z/{d}/{ds}000000-{s}h-enfo-ef"
             index = idx if s == 24 else get(stem + ".index")
