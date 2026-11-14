@@ -1,0 +1,31 @@
+name: exp-ens-summary
+# Experiment (Nov 2026): summary of an exp-ens-1b run (printed to the log, and kept as an artifact).
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: exp-ens-1b run id
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q numpy pandas
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: res-*
+          path: res
+      - run: python experiments/ens_rain/analyse.py res
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary
+          path: summary.csv
