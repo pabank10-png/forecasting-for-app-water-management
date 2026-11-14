@@ -10,6 +10,9 @@ on:
       bias_correct:
         description: "1 = quantile-map the ENS rain to the gauges (leave-one-year-out)"
         default: "0"
+      only:
+        description: "run only these 'folder/model SITE' pairs, separated by ';' (empty = all)"
+        default: ""
 permissions:
   contents: read
   actions: read
@@ -19,6 +22,7 @@ env:
   BC: ${{ inputs.bias_correct }}
 jobs:
   run:
+    if: inputs.only == '' || contains(inputs.only, format('{0} {1}', matrix.model.name, matrix.site))
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
