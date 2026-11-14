@@ -1,0 +1,26 @@
+name: exp-ens-rain
+# Experiment (Nov 2026): ECMWF ENS 51-member past forecast rain at the reservoirs from the free AWS archive,
+# for the ensemble streamflow test. Manual only; output is a workflow artifact.
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q eccodes numpy
+      - run: python experiments/ens_rain/fetch_ecmwf_ens.py ens_${{ matrix.chunk }}.csv.gz ${{ matrix.chunk }} 16
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ens-${{ matrix.chunk }}
+          path: ens_${{ matrix.chunk }}.csv.gz
+          retention-days: 14
