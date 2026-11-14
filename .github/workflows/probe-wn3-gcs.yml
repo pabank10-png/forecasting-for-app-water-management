@@ -1,0 +1,86 @@
+name: probe-wn3-gcs
+# Temporary, read-only probe (14 Nov 2026): can the wn3-reader service account list the WeatherNext 3
+# Zarr buckets, and what do the stores look like? Prints metadata only; downloads no forecast data.
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q google-auth requests
+      - name: Probe
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          python - <<'PY'
+          import json, os, requests
+          from google.oauth2 import service_account
+          from google.auth.transport.requests import Request
+          info = json.loads(os.environ["GCP_SA_KEY"])
+          project = info["project_id"]
+          cred = service_account.Credentials.from_service_account_info(
+              info, scopes=["https://www.googleapis.com/auth/devstorage.read_only"])
+          cred.refresh(Request())
+          H = {"Authorization": f"Bearer {cred.token}"}
+          API = "https://storage.googleapis.com/storage/v1/b"
+          def ls(bucket, prefix, user_project=None, n=1000):
+              p = {"prefix": prefix, "delimiter": "/", "maxResults": n}
+              if user_project: p["userProject"] = user_project
+              out, tok = [], None
+              while True:
+                  if tok: p["pageToken"] = tok
+                  r = requests.get(f"{API}/{bucket}/o", headers=H, params=p, timeout=60)
+                  if r.status_code != 200:
+                      return r.status_code, r.text[:400]
+                  j = r.json(); out += j.get("prefixes", []) + [i["name"] for i in j.get("items", [])]
+                  tok = j.get("nextPageToken")
+                  if not tok or len(out) > 20000: return 200, out
+          def get(bucket, name, user_project=None):
+              p = {"alt": "media"}
+              if user_project: p["userProject"] = user_project
+              r = requests.get(f"{API}/{bucket}/o/{requests.utils.quote(name, safe='')}", headers=H, params=p, timeout=60)
+              return r.status_code, r.text
+          for bucket, root, up in [
+              ("weathernext3_statistics_spatial", "weathernext_3_0_0_statistics/zarr/", None),
+              ("weathernext3_spatial", "weathernext_3_0_0/zarr/", None),
+              ("weathernext3_spatial", "weathernext_3_0_0/zarr/", project),
+          ]:
+              print(f"\n=== {bucket}/{root} userProject={up}")
+              code, top = ls(bucket, root, up)
+              print(code, top if code != 200 else top[:20])
+              if code != 200: continue
+              for sub in top:
+                  if not sub.endswith("/"): continue
+                  c2, inits = ls(bucket, sub, up)
+                  if c2 != 200: print(sub, c2, inits); continue
+                  print(sub, len(inits), "entries; first", inits[:3], "last", inits[-3:])
+                  if inits and inits[0].endswith("/"):
+                      c3, inner = ls(bucket, inits[-1], up)
+                      print("  inside last:", c3, inner[:10] if c3 == 200 else inner)
+                      store = next((x for x in (inner if c3 == 200 else []) if x.endswith(".zarr/")), None)
+                      if store:
+                          for meta in ["zarr.json", ".zmetadata", ".zattrs"]:
+                              c4, txt = get(bucket, store + meta, up)
+                              print(f"  {meta}: {c4} {len(txt)} bytes")
+                              if c4 == 200:
+                                  try:
+                                      j = json.loads(txt)
+                                      s = json.dumps(j)
+                                      # print array names, shapes and chunks compactly
+                                      md = j.get("metadata", j)
+                                      for k, v in list(md.items()):
+                                          if isinstance(v, dict) and ("shape" in v or "chunks" in v or "chunk_grid" in v):
+                                              print("   ", k, v.get("shape"), v.get("chunks") or v.get("chunk_grid"), v.get("dtype") or v.get("data_type"), v.get("dimension_names"))
+                                          elif k.endswith(".zarray"):
+                                              print("   ", k, v.get("shape"), v.get("chunks"), v.get("dtype"))
+                                          elif k.endswith(".zattrs") and "_ARRAY_DIMENSIONS" in v:
+                                              print("   ", k, v["_ARRAY_DIMENSIONS"])
+                                      if len(s) < 3000: print(s)
+                                  except Exception as e:
+                                      print("  not json", e, txt[:300])
+                                  break
+          PY
