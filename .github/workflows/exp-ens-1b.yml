@@ -46,45 +46,45 @@ jobs:
           ONLY: ${{ inputs.only }}
           PAIR: ${{ matrix.model.name }} ${{ matrix.site }}
         run: if [ -z "$ONLY" ] || [[ ";$ONLY;" == *";$PAIR;"* ]]; then echo go=1 >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/checkout@v4
-        if: steps.gate.outputs.go == '1'
-      - uses: actions/setup-python@v5
-        if: steps.gate.outputs.go == '1'
+      - if: steps.gate.outputs.go == '1'
+        uses: actions/checkout@v4
+      - if: steps.gate.outputs.go == '1'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements/${{ matrix.model.group }}.txt
-      - run: |
-        if: steps.gate.outputs.go == '1'
+      - if: steps.gate.outputs.go == '1'
+        run: |
           pip install -r requirements/${{ matrix.model.group }}.txt
           if [ "${{ matrix.model.group }}" = foundation ]; then pip install --no-deps uni2ts; fi
-      - uses: actions/checkout@v4
-        if: steps.gate.outputs.go == '1'
+      - if: steps.gate.outputs.go == '1'
+        uses: actions/checkout@v4
         with:
           repository: pabank10-png/flood-intelligence
           token: ${{ secrets.DATA_REPO_TOKEN }}
           path: data
           sparse-checkout: forecasting/1-reservoir-inflow
-      - uses: actions/cache/restore@v4
-        if: steps.gate.outputs.go == '1'
+      - if: steps.gate.outputs.go == '1'
+        uses: actions/cache/restore@v4
         with:
           path: data/forecasting/1-reservoir-inflow/data/raw/soil_moisture_daily.csv
           key: soil-daily-none
           restore-keys: soil-daily-
-      - uses: actions/download-artifact@v4
-        if: steps.gate.outputs.go == '1'
+      - if: steps.gate.outputs.go == '1'
+        uses: actions/download-artifact@v4
         with:
           run-id: ${{ inputs.ens_run_id }}
           github-token: ${{ github.token }}
           pattern: ens-*
           path: ens
-      - id: out
-        if: steps.gate.outputs.go == '1'
+      - if: steps.gate.outputs.go == '1'
+        id: out
         run: echo "name=$(basename ${{ matrix.model.name }})-${{ matrix.site }}$([ "$BC" = 1 ] && echo -qm)" >> "$GITHUB_OUTPUT"
-      - run: python experiments/ens_rain/run_1b.py ${{ matrix.model.name }} ${{ matrix.site }} ens ${{ steps.out.outputs.name }}.csv.gz
-        if: steps.gate.outputs.go == '1'
-      - uses: actions/upload-artifact@v4
-        if: steps.gate.outputs.go == '1'
+      - if: steps.gate.outputs.go == '1'
+        run: python experiments/ens_rain/run_1b.py ${{ matrix.model.name }} ${{ matrix.site }} ens ${{ steps.out.outputs.name }}.csv.gz
+      - if: steps.gate.outputs.go == '1'
+        uses: actions/upload-artifact@v4
         with:
           name: res-${{ steps.out.outputs.name }}
           path: ${{ steps.out.outputs.name }}.csv.gz
