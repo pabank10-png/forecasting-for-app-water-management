@@ -4,6 +4,7 @@ and once with the rain that really fell. The model is refitted at the first orig
 Usage: python run_1b.py MODEL SITE ENS_DIR OUT.csv.gz   (MODEL like task1b_reservoir_daily/04_hbv or a plan variant)
 """
 import glob
+import os
 import gzip
 import sys
 import time
@@ -44,11 +45,38 @@ def ens_rain(ens_dir, site):
     return out
 
 
+def quantile_map(ens, df):
+    """Bias-correct every member's daily rain by empirical quantile mapping to the rain that fell, fitted on the
+    OTHER years of the test (leave-one-year-out), pooling leads and members."""
+    rain = df.set_index("date")["rain"]
+    pairs = {}  # year -> (ens values, observed values on the same days)
+    for o, E in ens.items():
+        days = pd.date_range(o, periods=H)
+        ob = rain.reindex(days).to_numpy(float)
+        ok = ~np.isnan(ob)
+        if ok.any():
+            pe, po = pairs.setdefault(o.year, ([], []))
+            pe.append(E[:, ok].ravel()); po.append(ob[ok])
+    q = np.linspace(0, 1, 201)
+    out = {}
+    for o, E in ens.items():
+        others = [y for y in pairs if y != o.year]
+        xe = np.concatenate([np.concatenate(pairs[y][0]) for y in others])
+        xo = np.concatenate([np.concatenate(pairs[y][1]) for y in others])
+        qe, qo = np.quantile(xe, q), np.quantile(xo, q)
+        qe = np.maximum.accumulate(qe + np.arange(len(q)) * 1e-9)
+        out[o] = np.interp(E, qe, qo, right=None) + np.maximum(E - qe[-1], 0)  # above the top: keep the excess
+    return out
+
+
 def main(name, site, ens_dir, out):
     mod, kw = load(plan.folder(name)), plan.kwargs(name)
     rain_model = name in plan.RAIN_MODELS
     df = history(site)
     ens = ens_rain(ens_dir, site)
+    tag = ""
+    if os.environ.get("BC") == "1":
+        ens, tag = quantile_map(ens, df), "+qm"
     pos = {d: i for i, d in enumerate(df["date"])}
     rows, model, fit_year, t0 = [], None, None, time.time()
     for o in sorted(ens):
@@ -69,7 +97,7 @@ def main(name, site, ens_dir, out):
         f_obs, f_mean = fc(obs), fc(E.mean(axis=0))
         members = np.array([fc(r)["p50"].to_numpy(float) for r in E]) if rain_model else None
         for k in range(H):
-            r = dict(site=site, model=name.split("/")[-1], origin=o.date(), lead=k + 1,
+            r = dict(site=site, model=name.split("/")[-1] + tag, origin=o.date(), lead=k + 1,
                      date=df["date"].iloc[i + k].date(), actual=df["y"].iloc[i + k], obs_rain=obs[k],
                      ens_rain_mean=E[:, k].mean(), obs_p10=f_obs["p10"].iloc[k], obs_p50=f_obs["p50"].iloc[k],
                      obs_p90=f_obs["p90"].iloc[k], mean_p10=f_mean["p10"].iloc[k], mean_p50=f_mean["p50"].iloc[k],
