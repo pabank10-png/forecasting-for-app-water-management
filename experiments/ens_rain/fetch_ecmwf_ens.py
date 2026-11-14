@@ -33,7 +33,7 @@ def get(url, rng=None, tries=8):
             with urllib.request.urlopen(req, timeout=120) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
-            if e.code == 404:
+            if e.code in (403, 404):  # S3 answers 403 for a key that does not exist
                 return None
             time.sleep(2 + 3 * k)
         except Exception:
@@ -85,7 +85,8 @@ def one_message(url, off, ln):
 
 def run_init(init):
     ds = init.strftime("%Y%m%d")
-    for d in DIRS:
+    first = "ifs/0p25/enfo" if init >= dt.date(2024, 3, 1) else "0p25/enfo" if init >= dt.date(2024, 2, 1) else "0p4-beta/enfo"
+    for d in [first] + [x for x in DIRS if x != first]:
         idx = get(f"{BASE}/{ds}/00z/{d}/{ds}000000-24h-enfo-ef.index")
         if idx:
             break
@@ -116,7 +117,11 @@ def main(out, chunk, nchunks):
         for o in todo:
             init = o - dt.timedelta(days=1)
             t = time.time()
-            acc = run_init(init)
+            try:
+                acc = run_init(init)
+            except Exception as e:  # one bad run must not lose the others
+                print(o, "error", e, flush=True)
+                continue
             if not acc:
                 print(o, "missing", flush=True)
                 continue
