@@ -1,0 +1,24 @@
+name: exp-wn3-rain
+# Experiment (Nov 2026): WeatherNext 3 past forecast rain at the dams from BigQuery (mean + hourly percentiles),
+# same origins as the ECMWF ENS test. Manual only; about 0.1-0.3 GB billed per origin (~200 origins).
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q google-auth requests numpy eccodes
+      - env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: cd experiments/ens_rain && python fetch_wn3.py "$GITHUB_WORKSPACE/ens_wn3.csv.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ens-wn3
+          path: ens_wn3.csv.gz
+          retention-days: 14

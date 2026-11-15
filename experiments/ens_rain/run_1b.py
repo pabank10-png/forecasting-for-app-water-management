@@ -40,7 +40,7 @@ def ens_rain(ens_dir, site):
     out = {}
     for o, g in e.groupby("origin"):
         p = g.pivot_table(index="member", columns="date", values="mm").sort_index(axis=1)
-        if p.shape[1] >= H and p.shape[0] >= 40:
+        if p.shape[1] >= H and p.shape[0] >= int(os.environ.get("ENS_MIN", "40")):
             out[pd.Timestamp(o)] = p.iloc[:, :H].to_numpy(float)
     return out
 
@@ -77,6 +77,9 @@ def main(name, site, ens_dir, out):
     tag = ""
     if os.environ.get("BC") == "1":
         ens, tag = quantile_map(ens, df), "+qm"
+    wn3 = os.environ.get("SRC") == "wn3"  # member 0 = ensemble mean, 1-5 = daily sums of hourly p10..p90
+    if wn3:
+        tag += "+wn3"
     pos = {d: i for i, d in enumerate(df["date"])}
     rows, model, fit_year, t0 = [], None, None, time.time()
     for o in sorted(ens):
@@ -90,16 +93,19 @@ def main(name, site, ens_dir, out):
         hist.loc[hist.index[-1], "y"] = np.nan
         obs = df["rain"].iloc[i:i + H].fillna(0).to_numpy(float)
         E = ens[o]
+        mean_r = E.mean(axis=0)
+        if wn3:
+            mean_r, E = E[0], E[1:]
 
         def fc(r):
             return model.predict(hist, H, pd.DataFrame({"rain": r}) if rain_model else None)
 
-        f_obs, f_mean = fc(obs), fc(E.mean(axis=0))
+        f_obs, f_mean = fc(obs), fc(mean_r)
         members = np.array([fc(r)["p50"].to_numpy(float) for r in E]) if rain_model else None
         for k in range(H):
             r = dict(site=site, model=name.split("/")[-1] + tag, origin=o.date(), lead=k + 1,
                      date=df["date"].iloc[i + k].date(), actual=df["y"].iloc[i + k], obs_rain=obs[k],
-                     ens_rain_mean=E[:, k].mean(), obs_p10=f_obs["p10"].iloc[k], obs_p50=f_obs["p50"].iloc[k],
+                     ens_rain_mean=mean_r[k], obs_p10=f_obs["p10"].iloc[k], obs_p50=f_obs["p50"].iloc[k],
                      obs_p90=f_obs["p90"].iloc[k], mean_p10=f_mean["p10"].iloc[k], mean_p50=f_mean["p50"].iloc[k],
                      mean_p90=f_mean["p90"].iloc[k])
             if members is not None:

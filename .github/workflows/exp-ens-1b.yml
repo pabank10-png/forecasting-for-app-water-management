@@ -10,6 +10,9 @@ on:
       bias_correct:
         description: "1 = quantile-map the ENS rain to the gauges (leave-one-year-out)"
         default: "0"
+      source:
+        description: "ecmwf (51 members) or wn3 (BigQuery mean + p10..p90)"
+        default: ecmwf
       only:
         description: "run only these 'folder/model SITE' pairs, separated by ';' (empty = all)"
         default: ""
@@ -20,6 +23,8 @@ env:
   FORECAST_DATA_DIR: ${{ github.workspace }}/data/forecasting/1-reservoir-inflow/data/csv
   PYTHONUNBUFFERED: "1"
   BC: ${{ inputs.bias_correct }}
+  SRC: ${{ inputs.source }}
+  ENS_MIN: ${{ inputs.source == 'wn3' && '6' || '40' }}
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -80,7 +85,7 @@ jobs:
           path: ens
       - if: steps.gate.outputs.go == '1'
         id: out
-        run: echo "name=$(basename ${{ matrix.model.name }})-${{ matrix.site }}$([ "$BC" = 1 ] && echo -qm)" >> "$GITHUB_OUTPUT"
+        run: echo "name=$(basename ${{ matrix.model.name }})-${{ matrix.site }}$([ "$BC" = 1 ] && echo -qm)$([ "$SRC" = wn3 ] && echo -wn3)" >> "$GITHUB_OUTPUT"
       - if: steps.gate.outputs.go == '1'
         run: python experiments/ens_rain/run_1b.py ${{ matrix.model.name }} ${{ matrix.site }} ens ${{ steps.out.outputs.name }}.csv.gz
       - if: steps.gate.outputs.go == '1'
