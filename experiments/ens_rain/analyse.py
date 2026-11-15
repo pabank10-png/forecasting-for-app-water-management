@@ -78,3 +78,25 @@ print(t.groupby("site").apply(lambda g: pd.Series({"n": len(g), "obs_mean": g.ob
                                                     "r": g.obs.corr(g.ens), "mae": (g.obs - g.ens).abs().mean()})).round(2))
 print("\nwettest observed weeks:")
 print(t.sort_values("obs").tail(12).round(1).to_string(index=False))
+
+# By lead day: MAE of mean-rain run, ensemble median, observed rain; Brier of "day inflow in top 20%"
+print("\nBy lead (mean over sites, rain models):")
+rm = d[d[mcols].notna().any(axis=1)].copy()
+M = rm[mcols].to_numpy(float)
+rm["med"] = np.nanmedian(M, axis=1)
+thr = rm.groupby(["site", "model"])["actual"].transform(lambda s: s.quantile(0.8))
+ev = (rm["actual"] > thr).astype(float)
+rm["b_ens"] = ((M > thr.to_numpy()[:, None]).mean(axis=1) - ev) ** 2
+rm["b_mean"] = ((rm["mean_p50"] > thr).astype(float) - ev) ** 2
+rm["e_mean"] = (rm["mean_p50"] - rm["actual"]).abs()
+rm["e_med"] = (rm["med"] - rm["actual"]).abs()
+rm["e_obs"] = (rm["obs_p50"] - rm["actual"]).abs()
+qm = rm["model"].str.endswith("+qm")
+for tag, g in (("raw", rm[~qm]), ("qm", rm[qm])):
+    t = g.groupby("lead")[["e_mean", "e_med", "e_obs", "b_mean", "b_ens"]].mean()
+    t["mae_gain_%"] = 100 * (1 - t["e_med"] / t["e_mean"])
+    t["brier_gain_%"] = 100 * (1 - t["b_ens"] / t["b_mean"])
+    print(tag); print(t.round(4).to_string())
+best = rm[~qm].groupby(["site", "model", "lead"])[["e_mean", "e_med"]].mean().reset_index()
+print("\nlightgbm_storm / hbv / gr4j by lead, all sites:")
+print(best[best.model.isin(["04_hbv", "03_gr4j", "05_lightgbm_storm", "05_lightgbm_daily"])].groupby(["model", "lead"])[["e_mean", "e_med"]].mean().round(4).unstack(0).to_string())
