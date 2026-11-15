@@ -1,0 +1,56 @@
+name: exp-ens-archive
+# Shadow test (user, 15 Nov 2026): every day keep the ensemble forecast rain at the 4 dams (ECMWF ENS 51 members,
+# WeatherNext 2 64 members) as a file in the public Release "ens-rain-archive", so the ensemble inflow forecast can be
+# scored against real inflow later. Touches nothing in the live forecast.
+on:
+  schedule:
+    - cron: "40 9 * * *"   # 16:40 ICT, after the 00Z ECMWF ENS run is published (~08:40 UTC)
+  workflow_dispatch:
+    inputs:
+      seed_run_id:
+        description: "optional: exp-ens-rain run id whose 2024-2026 ECMWF ENS files are kept in the Release once"
+        default: ""
+permissions:
+  contents: write
+  actions: read
+concurrency: ens-archive
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q eccodes numpy
+      - name: Release exists
+        run: gh release view ens-rain-archive >/dev/null 2>&1 || gh release create ens-rain-archive --title "Ensemble forecast rain archive" --notes "Daily ensemble forecast rain at the reservoirs (ECMWF ENS 51 members, WeatherNext 2 64 members), UTC-day totals in mm. Shadow test only, not used by the live forecast."
+      - if: inputs.seed_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.seed_run_id }}
+          github-token: ${{ github.token }}
+          pattern: ens-*
+          path: seed
+      - if: inputs.seed_run_id != ''
+        run: |
+          python - <<'PY'
+          import glob, gzip
+          files = sorted(glob.glob("seed/**/*.csv.gz", recursive=True))
+          with gzip.open("ecmwf-ens-history-2024-2026.csv.gz", "wt") as out:
+              for i, p in enumerate(files):
+                  with gzip.open(p, "rt") as f:
+                      head = f.readline()
+                      if i == 0: out.write(head)
+                      out.writelines(f)
+          PY
+          gh release upload ens-rain-archive ecmwf-ens-history-2024-2026.csv.gz --clobber
+      - name: Today's forecasts
+        if: inputs.seed_run_id == ''
+        run: |
+          f=ens-$(date -u +%Y-%m-%d).csv.gz
+          (cd experiments/ens_rain && python live_archive.py "$GITHUB_WORKSPACE/$f")
+          gh release upload ens-rain-archive "$f" --clobber
