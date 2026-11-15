@@ -1,0 +1,88 @@
+name: exp-ens-uses
+# Experiment (Nov 2026): ensemble rain for the heavy-rain switch, Storm Trigger, storage-line chances and the
+# month-end nowcast (experiments/ens_rain/run_uses.py). Manual only. Results go to the Release "ens-uses-results".
+on:
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: 'JSON list of rain variants: ecmwf, ecmwf+qm, wn3, wn3+qm'
+        default: '["ecmwf","ecmwf+qm"]'
+      wn3_run_id:
+        description: exp-wn3-rain run id (needed for wn3 variants)
+        default: ""
+permissions:
+  contents: write
+  actions: read
+env:
+  FORECAST_DATA_DIR: ${{ github.workspace }}/data/forecasting/1-reservoir-inflow/data/csv
+  PYTHONUNBUFFERED: "1"
+  GH_TOKEN: ${{ github.token }}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        site: [DK, KY, NPL, PS]
+        model: [03_gr4j, 04_hbv, 05_lightgbm_daily, 05_lightgbm_storm]
+        variant: ${{ fromJSON(inputs.variants) }}
+    name: ${{ matrix.model }} ${{ matrix.site }} ${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/base.txt
+      - run: pip install -r requirements/base.txt
+      - uses: actions/checkout@v4
+        with:
+          repository: pabank10-png/flood-intelligence
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: data
+          sparse-checkout: forecasting/1-reservoir-inflow
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/forecasting/1-reservoir-inflow/data/raw/soil_moisture_daily.csv
+          key: soil-daily-none
+          restore-keys: soil-daily-
+      - if: startsWith(matrix.variant, 'ecmwf')
+        run: mkdir -p ens && gh release download ens-rain-archive -p 'ecmwf-ens-history-2024-2026.csv.gz' -D ens -R ${{ github.repository }}
+      - if: startsWith(matrix.variant, 'wn3')
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.wn3_run_id }}
+          github-token: ${{ github.token }}
+          pattern: ens-*
+          path: ens
+      - id: v
+        run: |
+          v="${{ matrix.variant }}"
+          echo "src=${v%%+*}" >> "$GITHUB_OUTPUT"
+          echo "bc=$([[ $v == *qm ]] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+          echo "name=${{ matrix.model }}-${{ matrix.site }}-${v/+/-}" >> "$GITHUB_OUTPUT"
+      - env:
+          SRC: ${{ steps.v.outputs.src }}
+          BC: ${{ steps.v.outputs.bc }}
+        run: python experiments/ens_rain/run_uses.py task1b_reservoir_daily/${{ matrix.model }} ${{ matrix.site }} ens ${{ steps.v.outputs.name }}.csv.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uses-${{ steps.v.outputs.name }}
+          path: ${{ steps.v.outputs.name }}.csv.gz
+          retention-days: 14
+  publish:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: uses-*
+          path: res
+          merge-multiple: true
+      - run: |
+          gh release view ens-uses-results -R ${{ github.repository }} >/dev/null 2>&1 || \
+            gh release create ens-uses-results -R ${{ github.repository }} --title "Experiment: ensemble rain uses" \
+              --notes "Experiment results (Nov 2026), not used by the live system."
+          gh release upload ens-uses-results res/*.csv.gz --clobber -R ${{ github.repository }}
