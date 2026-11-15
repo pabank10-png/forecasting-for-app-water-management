@@ -102,6 +102,10 @@ def wn3_path():
 
 
 SWITCH_SOURCES = ("WN3", "WN2")
+# Rain the daily (1B) rain models are fed when one of these answers; otherwise the weighted Open-Meteo sources.
+# Test Feb 2024-Oct 2026 (193 weeks): WN3 rain gave a lower 7-day MAE than the live source mix for every model
+# and dam (PS GR4J 5.38 -> 3.93, KY HBV 2.05 -> 1.91, LightGBM 1-3%).
+MODEL_RAIN_SOURCES = ("WN3", "WN2", "ECMWF")
 
 
 def switch_rain(site, first_day, days=7, futures=None):

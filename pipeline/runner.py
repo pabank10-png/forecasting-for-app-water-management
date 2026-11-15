@@ -152,6 +152,11 @@ def daily_site(name, site, kind, source_mae=None):
         fc = m.predict(cur, h)
         if rain:
             out["note"] = "ไม่มีฝนพยากรณ์ ใช้ฝน 0 มม."
+    if sw_src in data_prep.MODEL_RAIN_SOURCES:  # every rain model: WN3 > WN2 > ECMWF (user, 15 Nov 2026)
+        fc = m.predict(cur, h, sw)
+        out.setdefault("by_source", {})[sw_src] = _rows(fc, dates)
+        out["rain_source"] = sw_src
+        out.pop("note", None)
     out["forecast"] = _rows(fc, dates)
     if kind == "monthly":
         hist, last = daily_frame_for_backtest(site, rain)
