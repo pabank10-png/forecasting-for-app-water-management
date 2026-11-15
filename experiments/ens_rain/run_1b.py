@@ -77,9 +77,9 @@ def main(name, site, ens_dir, out):
     tag = ""
     if os.environ.get("BC") == "1":
         ens, tag = quantile_map(ens, df), "+qm"
-    wn3 = os.environ.get("SRC") == "wn3"  # member 0 = ensemble mean, 1-5 = daily sums of hourly p10..p90
+    wn3 = os.environ.get("SRC") in ("wn3", "wn2")  # member 0 = ensemble mean (wn3: 1-5 = daily sums of hourly p10..p90)
     if wn3:
-        tag += "+wn3"
+        tag += "+" + os.environ["SRC"]
     pos = {d: i for i, d in enumerate(df["date"])}
     rows, model, fit_year, t0 = [], None, None, time.time()
     for o in sorted(ens):
