@@ -96,6 +96,38 @@ def forecast_rain(site, first_day, days=7):
     return out
 
 
+def wn3_path():
+    """WN3/WN2 dam rain saved by the prepare step (pipeline/wn3_rain.py); travels with the dataset."""
+    return data_dir().parent / "raw" / "wn3_forecast_rain.json"
+
+
+SWITCH_SOURCES = ("WN3", "WN2")
+
+
+def switch_rain(site, first_day, days=7, futures=None):
+    """(DataFrame(rain), source) for the heavy-rain switch and the Storm Trigger: WN3, else WN2 (from the prepare
+    step's file), else ECMWF of `futures` (Open-Meteo), else the mean of the futures; (None, None) if nothing."""
+    want = [x.strftime("%Y-%m-%d") for x in pd.date_range(pd.Timestamp(first_day), periods=days, freq="D")]
+    path = wn3_path()
+    saved = {}
+    if path.exists():
+        try:
+            saved = json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            saved = {}
+    for name in SWITCH_SOURCES:
+        d = ((saved.get(name) or {}).get("daily") or {}).get(site, {})
+        if all(k in d for k in want):
+            return pd.DataFrame({"rain": [float(d[k]) for k in want]}), name
+    if futures is None:
+        futures = forecast_rain(site, first_day, days)
+    if futures.get("ECMWF") is not None:
+        return futures["ECMWF"].iloc[:days].reset_index(drop=True), "ECMWF"
+    if futures:
+        return pd.DataFrame({"rain": np.mean([f["rain"].to_numpy(float)[:days] for f in futures.values()], axis=0)}), "mean"
+    return None, None
+
+
 PREVIOUS_RUNS = "https://previous-runs-api.open-meteo.com/v1/forecast"
 
 

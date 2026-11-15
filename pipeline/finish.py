@@ -195,7 +195,8 @@ def heavy_rain_switch(site, results, fin):
     r7 = rain7(site, results)
     if hydro is None or r7 is None or r7 < plan.HEAVY_RAIN_MM:
         return fin, None
-    rows = ((results.get(hydro) or {}).get("sites", {}).get(site) or {}).get("forecast")
+    entry = (results.get(hydro) or {}).get("sites", {}).get(site) or {}
+    rows = entry.get("forecast_switch") or entry.get("forecast")
     if not rows or any(r.get("p50") is None for r in rows):
         return fin, None
     return [dict(r) for r in rows], {"rain7_mm": r7, "threshold_mm": plan.HEAVY_RAIN_MM, "model": hydro}

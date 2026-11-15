@@ -76,10 +76,10 @@ def storm_forecast(m, df, h):
     rain, totals = {}, []
     for part, p in m.parts.items():
         first = p.d.index[-1] + pd.Timedelta(days=1)
-        src = data_prep.forecast_rain(part, first, plan.STORM_DAYS)
-        if not src:
+        r, _ = data_prep.switch_rain(part, first, plan.STORM_DAYS)  # WN3 > WN2 > ECMWF > mean of sources
+        if r is None:
             return {}
-        mean = np.mean([f["rain"].to_numpy(float) for f in src.values()], axis=0)
+        mean = r["rain"].to_numpy(float)
         rain[part] = pd.Series(mean, index=pd.date_range(first, periods=plan.STORM_DAYS, freq="D"))
         totals.append(float(mean.sum()))
     r7 = round(float(np.mean(totals)), 1)
@@ -137,6 +137,11 @@ def daily_site(name, site, kind, source_mae=None):
             source_mae = {k: v["mae"] for k, v in scores.items()}
     if futures:
         out["rain7"] = round(float(np.mean([f["rain"].to_numpy(float)[:h].sum() for f in futures.values()])), 1)
+    sw, sw_src = data_prep.switch_rain(site, first, h, futures) if rain else (None, None)
+    if sw is not None:  # heavy-rain switch: 7-day rain WN3 > WN2 > ECMWF, and the hydrology forecast with that rain
+        out["rain7"], out["rain7_source"] = round(float(sw["rain"].sum()), 1), sw_src
+        if plan.HEAVY_RAIN_MODEL.get(site) == name:
+            out["forecast_switch"] = _rows(m.predict(cur, h, sw), dates)
     if rain and futures:
         ens = load(f"{plan.T1B}/90_rain_source_ensemble").Model(base=m)
         if source_mae and all(s in source_mae for s in futures):

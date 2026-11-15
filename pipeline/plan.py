@@ -94,15 +94,15 @@ MODELS.update({m + SUM: v for m, v in list(MODELS.items()) if m.startswith(T1) a
 RAIN_MODELS = {f"{T1B}/03_gr4j", f"{T1B}/04_hbv", f"{T1B}/08_hec_hms", f"{T1B}/05_lightgbm_daily", f"{T1B}/05_lightgbm_daily_soil", f"{T1B}/05_lightgbm_storm", f"{T1B}/06_lstm_seq2seq",
                f"{T1B}/07_chronos2_exog"}
 
-# Heavy-rain switch (user asked 2026-11-07 after the Sep 2026 storm): when the 7-day forecast rain (mean of the
-# sources) at a dam is at least HEAVY_RAIN_MM, the 1-7 day final forecast comes from a hydrology model, which
+# Heavy-rain switch (user asked 2026-11-07 after the Sep 2026 storm): when the 7-day forecast rain (since 15 Nov 2026:
+# WN3, else WN2, else ECMWF; data_prep.switch_rain) at a dam is at least HEAVY_RAIN_MM, the 1-7 day final forecast comes from a hydrology model, which
 # turns rain on wet soil into runoff; the data-driven models had learnt that heavy rain gives little inflow.
 # Backtest Jun 2024-Oct 2026 with the forecast rain issued on each day: 7-day MAE THREE 5.1 -> 4.4, PS 4.7 -> 4.2;
 # month-end Nowcast in heavy-rain spells THREE 41 -> 34, PS 34 -> 25 MCM; normal days not worse.
 HEAVY_RAIN_MM = 100.0
 HEAVY_RAIN_MODEL = {"DK": f"{T1B}/04_hbv", "KY": f"{T1B}/04_hbv", "NPL": f"{T1B}/04_hbv", "PS": f"{T1B}/03_gr4j"}
 
-# Storm Trigger (user asked 2026-11-09): when the 7-day forecast rain (mean of the sources, mean of the dams of a
+# Storm Trigger (user asked 2026-11-09): when the 7-day forecast rain (data_prep.switch_rain, mean of the dams of a
 # site) reaches STORM_RAIN_MM, months 1-2 of the Task 1 final forecast are raised to the ESP of STORM_MODEL run with
 # that forecast rain (HBV + GR4J from today's soil state). The data-driven models have almost never seen a storm this
 # size (7-day rain >= 200 mm only Oct 2013 in 1994-2026). Test with WN3 forecasts Jan 2024-Oct 2026, origins on day

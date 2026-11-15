@@ -8,3 +8,6 @@ scikit-learn>=1.4
 xgboost>=2.1
 numba>=0.60
 openpyxl>=3.1
+# WeatherNext 3 rain from BigQuery (prepare step)
+google-auth>=2.20
+requests>=2.31

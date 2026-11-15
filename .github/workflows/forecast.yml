@@ -109,6 +109,13 @@ jobs:
           fi
           if timeout 15m python build_dataset.py >/dev/null 2>&1; then echo "built=1" >> "$GITHUB_OUTPUT"; else echo "::warning::dataset rebuild failed, using the committed CSVs"; git -C ../../.. checkout -- forecasting; echo "built=0" >> "$GITHUB_OUTPUT"; fi
           echo "sources_ok=$ok" >> "$GITHUB_OUTPUT"
+      # 7-day rain at the dams for the heavy-rain switch and the Storm Trigger: WeatherNext 3 (~0.2 GB of BigQuery a run)
+      # and WeatherNext 2 (Open-Meteo, free); when both are missing the switch uses ECMWF
+      - if: steps.check.outputs.ok == 'true' && steps.due.outputs.due != 'false'
+        name: WeatherNext 3 / 2 rain at the dams
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: python -m pipeline.wn3_rain data/forecasting/1-reservoir-inflow/data/raw/wn3_forecast_rain.json || echo "::warning::WN3/WN2 rain not fetched"
       # Daily runs rerun only the (model, reservoir) pairs whose inputs changed since the last finished run
       - if: steps.check.outputs.ok == 'true' && steps.due.outputs.due != 'false'
         name: Plan which models must run
