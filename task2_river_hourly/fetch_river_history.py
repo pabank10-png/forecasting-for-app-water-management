@@ -5,7 +5,8 @@ Bangkok hour: last, max and mean level (m MSL), last discharge (m3/s) and the nu
 checked Oct 2026 (forecasting/2-river-flood/history_depth.csv in the website repo): RAY001 from 2013, RAY002 2016,
 Z.38/Z.11/Z.18 2020. Asked a month at a time, gently (one request a second, retries with back-off).
 Public data (user OK 13 Nov 2026 for public archives). Usage:
-    python fetch_river_history.py OUT.csv.gz [--from 2013-01-01] [--to YYYY-MM-DD]
+    python fetch_river_history.py OUT.csv.gz [--from 2013-01-01] [--to YYYY-MM-DD] [--append OLD.csv.gz]
+With --append the old file is copied first and only days after its last hour are asked for (daily top-up).
 """
 import argparse
 import csv
@@ -19,8 +20,7 @@ URL = ("https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_graph"
        "?station_type=tele_waterlevel&station_id={sid}&start_date={a}&end_date={b}")
 # ThaiWater station id -> (code, name, first year with data)
 GAUGES = {"115": ("RAY001", "เมืองแกลง", 2013), "118": ("RAY002", "หนองบัว", 2016), "117": ("RAY004", "บ้านค่าย", 2013),
-          "505011": ("Z.38", "บ้านเขาโบสถ์", 2020), "2669": ("Z.11", "บ้านเขาวังไทร", 2020),
-          "2668": ("Z.18", "บ้านซำฆ้อ", 2020)}
+          "505011": ("Z.38", "บ้านเขาโบสถ์", 2020), "2669": ("Z.11", "บ้านเขาวังไทร", 2020)}  # Z.18 dropped 16 Nov 2026 (user): too sparse
 
 
 def num(v):
@@ -53,12 +53,21 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--from", dest="start", default="2013-01-01")
     ap.add_argument("--to", dest="end", default=(dt.date.today() - dt.timedelta(days=1)).isoformat())
+    ap.add_argument("--append")
     a = ap.parse_args()
     start, end = dt.date.fromisoformat(a.start), dt.date.fromisoformat(a.end)
+    old = []
+    if a.append:
+        with gzip.open(a.append, "rt", encoding="utf-8") as f:
+            old = [r for r in csv.reader(f)][1:]
+        old = [r for r in old if r[1] in {g[0] for g in GAUGES.values()}]
+        if old:
+            start = max(start, dt.date.fromisoformat(max(r[2] for r in old)[:10]) + dt.timedelta(days=1))
     rows, failed = 0, []
     with gzip.open(a.out, "wt", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["station_id", "code", "hour", "level_last", "level_max", "level_mean", "discharge_last", "n"])
+        w.writerows(old)
         for sid, (code, name, y0) in GAUGES.items():
             n0 = rows
             for m0, m1 in months(max(start, dt.date(y0, 1, 1)), end):
@@ -81,7 +90,7 @@ def main():
                                 round(sum(lv) / len(lv), 3) if lv else "", qs[-1] if qs else "", len(xs)])
                     rows += 1
             print(code, name, rows - n0, "hours", flush=True)
-    print("rows", rows, "failed months", len(failed), failed[:20], flush=True)
+    print("old rows", len(old), "new rows", rows, "from", start, "failed months", len(failed), failed[:20], flush=True)
 
 
 if __name__ == "__main__":

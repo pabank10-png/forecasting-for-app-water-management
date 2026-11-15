@@ -1,29 +1,56 @@
-name: 'Task 2 · River level history backfill (Rayong pilot gauges)'
-# Hourly level/discharge history of the Rayong pilot gauges from ThaiWater (2013/2016/2020 onward) for training the
-# Task 2 river models. Manual only; the daily collector (wi-water-daily) keeps new days. Result goes to the
-# public Release "river-history" (public data, user OK 13 Nov 2026).
+name: 'Task 2 · River data (Rayong): history once, then one day at a time'
+# Training data for the Task 2 river models, kept in the public Release "river-history" (public data, user OK
+# 13 + 16 Nov 2026):
+#   river-hourly-rayong.csv.gz  ThaiWater hourly level/discharge: RAY001, RAY002, RAY004, Z.38, Z.11
+#   dwr-hourly-rayong.csv.gz    DWR telemetry hourly level/rain/flow of the TA17* gauges, incl. TA170203 (city centre)
+# The first run fills the history from `start`; every later run only adds the days after the last stored one.
 on:
+  schedule:
+    - cron: '20 18 * * *'   # 01:20 Bangkok
   workflow_dispatch:
     inputs:
       start:
-        description: First day (YYYY-MM-DD)
+        description: First day for a file that does not exist yet (YYYY-MM-DD)
         default: '2013-01-01'
 permissions:
   contents: write
+concurrency:
+  group: task2-river-history
+  cancel-in-progress: false
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 340
     env:
       GH_TOKEN: ${{ github.token }}
+      R: ${{ github.repository }}
+      START: ${{ inputs.start || '2013-01-01' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python task2_river_hourly/fetch_river_history.py river-hourly-rayong.csv.gz --from "${{ inputs.start }}"
-      - run: |
-          gh release view river-history -R ${{ github.repository }} >/dev/null 2>&1 || \
-            gh release create river-history -R ${{ github.repository }} --title "Task 2: river level history (Rayong)" \
-              --notes "Hourly river level/discharge of the Rayong pilot gauges from ThaiWater, for training Task 2 models."
-          gh release upload river-history river-hourly-rayong.csv.gz --clobber -R ${{ github.repository }}
+      - name: Get the stored files
+        run: |
+          gh release view river-history -R $R >/dev/null 2>&1 || \
+            gh release create river-history -R $R --title "Task 2: river data (Rayong)" \
+              --notes "Hourly river level, rain and flow of the Rayong gauges (ThaiWater + DWR telemetry), for training Task 2 models. Topped up daily."
+          mkdir -p old
+          for f in river-hourly-rayong.csv.gz dwr-hourly-rayong.csv.gz; do
+            gh release download river-history -R $R -p $f -D old 2>/dev/null || echo "no $f yet"
+          done
+          ls -la old
+      - name: ThaiWater gauges
+        run: |
+          A=""; [ -f old/river-hourly-rayong.csv.gz ] && A="--append old/river-hourly-rayong.csv.gz"
+          python task2_river_hourly/fetch_river_history.py river-hourly-rayong.csv.gz --from "$START" $A
+      - name: DWR gauges
+        run: |
+          A=""; [ -f old/dwr-hourly-rayong.csv.gz ] && A="--append old/dwr-hourly-rayong.csv.gz"
+          python task2_river_hourly/fetch_dwr_history.py dwr-hourly-rayong.csv.gz --from "$START" --max-minutes 240 $A
+      - name: Store
+        if: always()
+        run: |
+          for f in river-hourly-rayong.csv.gz dwr-hourly-rayong.csv.gz; do
+            [ -s $f ] && gh release upload river-history $f --clobber -R $R || echo "skip $f"
+          done
