@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       variants:
-        description: 'JSON list of rain variants: ecmwf, ecmwf+qm, wn3, wn3+qm'
+        description: 'JSON list of rain variants: ecmwf, ecmwf+qm, wn3, wn3+qm, live (mean of the 4 Open-Meteo sources the pipeline uses, 7 days)'
         default: '["ecmwf","ecmwf+qm"]'
       wn3_run_id:
         description: exp-wn3-rain run id (needed for wn3 variants)
@@ -56,6 +56,8 @@ jobs:
           github-token: ${{ github.token }}
           pattern: ens-*
           path: ens
+      - if: matrix.variant == 'live'
+        run: mkdir -p ens && python experiments/ens_rain/fetch_live_rain.py ${{ matrix.site }} ens/live-${{ matrix.site }}.csv.gz
       - id: v
         run: |
           v="${{ matrix.variant }}"
@@ -65,6 +67,7 @@ jobs:
       - env:
           SRC: ${{ steps.v.outputs.src }}
           BC: ${{ steps.v.outputs.bc }}
+          HR: ${{ matrix.variant == 'live' && '7' || '14' }}
         run: python experiments/ens_rain/run_uses.py task1b_reservoir_daily/${{ matrix.model }} ${{ matrix.site }} ens ${{ steps.v.outputs.name }}.csv.gz
       - uses: actions/upload-artifact@v4
         with:

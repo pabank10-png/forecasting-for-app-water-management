@@ -26,7 +26,7 @@ from common.conceptual import Conceptual
 from common.registry import load
 from pipeline import plan
 
-HR = 14  # forecast-rain days
+HR = int(os.environ.get("HR", "14"))  # forecast-rain days (7 for the live-pipeline rain)
 
 
 def ens_rain(ens_dir, site, min_members):
@@ -64,7 +64,7 @@ def main(name, site, ens_dir, out):
     src = os.environ.get("SRC", "ecmwf")
     df = run_1b.history(site)
     run_1b.H = HR
-    ens = ens_rain(ens_dir, site, 6 if src == "wn3" else 40)
+    ens = ens_rain(ens_dir, site, {"wn3": 6, "live": 1}.get(src, 40))
     tag = "+" + src
     if os.environ.get("BC") == "1":
         ens, tag = run_1b.quantile_map(ens, df), tag + "+qm"
