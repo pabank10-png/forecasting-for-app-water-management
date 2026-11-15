@@ -1,0 +1,29 @@
+name: 'Task 2 · River level history backfill (Rayong pilot gauges)'
+# Hourly level/discharge history of the Rayong pilot gauges from ThaiWater (2013/2016/2020 onward) for training the
+# Task 2 river models. Manual only; the daily collector (wi-water-daily) keeps new days. Result goes to the
+# public Release "river-history" (public data, user OK 13 Nov 2026).
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: First day (YYYY-MM-DD)
+        default: '2013-01-01'
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python task2_river_hourly/fetch_river_history.py river-hourly-rayong.csv.gz --from "${{ inputs.start }}"
+      - run: |
+          gh release view river-history -R ${{ github.repository }} >/dev/null 2>&1 || \
+            gh release create river-history -R ${{ github.repository }} --title "Task 2: river level history (Rayong)" \
+              --notes "Hourly river level/discharge of the Rayong pilot gauges from ThaiWater, for training Task 2 models."
+          gh release upload river-history river-hourly-rayong.csv.gz --clobber -R ${{ github.repository }}
