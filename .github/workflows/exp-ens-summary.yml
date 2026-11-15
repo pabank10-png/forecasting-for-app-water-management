@@ -9,6 +9,9 @@ on:
       run_id2:
         description: second exp-ens-1b run id (optional)
         default: ""
+      run_id3:
+        description: third exp-ens-1b run id (optional)
+        default: ""
 permissions:
   contents: read
   actions: read
@@ -34,6 +37,14 @@ jobs:
           github-token: ${{ github.token }}
           pattern: res-*
           path: res2
+      - if: inputs.run_id3 != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id3 }}
+          github-token: ${{ github.token }}
+          pattern: res-*
+          path: res3
+      - run: mkdir -p res3 && cp -r res3/. res/
       - run: mkdir -p res2 && cp -r res2/. res/ 2>/dev/null || true
       - run: python experiments/ens_rain/analyse.py res
       - uses: actions/upload-artifact@v4
