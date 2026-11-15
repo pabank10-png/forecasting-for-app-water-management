@@ -1,5 +1,5 @@
 name: exp-ens-archive
-# Shadow test (user, 15 Nov 2026): every day keep the ensemble forecast rain at the 4 dams (ECMWF ENS 51 members,
+# Shadow test (user, 15 Nov 2026): every day keep the ensemble forecast rain at the 4 dams (ECMWF ENS 50-51 members,
 # WeatherNext 2 64 members) as a file in the public Release "ens-rain-archive", so the ensemble inflow forecast can be
 # scored against real inflow later. Touches nothing in the live forecast.
 on:
@@ -27,7 +27,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -q eccodes numpy
       - name: Release exists
-        run: gh release view ens-rain-archive >/dev/null 2>&1 || gh release create ens-rain-archive --title "Ensemble forecast rain archive" --notes "Daily ensemble forecast rain at the reservoirs (ECMWF ENS 51 members, WeatherNext 2 64 members), UTC-day totals in mm. Shadow test only, not used by the live forecast."
+        run: gh release view ens-rain-archive >/dev/null 2>&1 || gh release create ens-rain-archive --title "Ensemble forecast rain archive" --notes "Daily ensemble forecast rain at the reservoirs (ECMWF ENS 50-51 members, WeatherNext 2 64 members), UTC-day totals in mm. Shadow test only, not used by the live forecast."
       - if: inputs.seed_run_id != ''
         uses: actions/download-artifact@v4
         with:

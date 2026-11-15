@@ -25,7 +25,7 @@ def ecmwf(rows):
     today = dt.datetime.now(dt.timezone.utc).date()
     for init in (today, today - dt.timedelta(days=1)):
         acc = E.run_init(init)
-        if acc and len({m for _, m in acc}) >= 40 and all((s, 0) in acc for s in E.STEPS):
+        if acc and len({m for _, m in acc}) >= 40 and all((s, 1) in acc for s in E.STEPS):
             break
     else:
         print("ECMWF ENS: no complete run", flush=True)
