@@ -14,12 +14,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 import pandas as pd
 
-import fetch_ecmwf_ens as E
 from pipeline import data_prep
 
 
+def origins():
+    """Same origins as fetch_ecmwf_ens.origins (not imported: that module needs eccodes)."""
+    out, d = [], dt.date(2024, 2, 6)
+    while d <= dt.date.today() - dt.timedelta(days=2):
+        if d.day in (1, 6, 11, 16, 21, 26):
+            out.append(d)
+        d += dt.timedelta(days=1)
+    return out
+
+
 def main(site, out):
-    origins = E.origins()
+    origins = globals()["origins"]()
     arch = data_prep.rain_archive(site, origins[0], origins[-1] + dt.timedelta(days=7), 7)
     if not arch:
         sys.exit("no archive")
