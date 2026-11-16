@@ -109,13 +109,6 @@ jobs:
           fi
           if timeout 15m python build_dataset.py >/dev/null 2>&1; then echo "built=1" >> "$GITHUB_OUTPUT"; else echo "::warning::dataset rebuild failed, using the committed CSVs"; git -C ../../.. checkout -- forecasting; echo "built=0" >> "$GITHUB_OUTPUT"; fi
           echo "sources_ok=$ok" >> "$GITHUB_OUTPUT"
-      # 7-day rain at the dams for the heavy-rain switch and the Storm Trigger: WeatherNext 3 (~0.2 GB of BigQuery a run)
-      # and WeatherNext 2 (Open-Meteo, free); when both are missing the switch uses ECMWF
-      - if: steps.check.outputs.ok == 'true' && steps.due.outputs.due != 'false'
-        name: WeatherNext 3 / 2 rain at the dams
-        env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-        run: python -m pipeline.wn3_rain data/forecasting/1-reservoir-inflow/data/raw/wn3_forecast_rain.json || echo "::warning::WN3/WN2 rain not fetched"
       # Daily runs rerun only the (model, reservoir) pairs whose inputs changed since the last finished run
       - if: steps.check.outputs.ok == 'true' && steps.due.outputs.due != 'false'
         name: Plan which models must run
@@ -139,9 +132,45 @@ jobs:
           python -m pipeline step --run-id "${{ steps.start.outputs.run_id }}" --name data --status failed --message "เตรียมข้อมูลไม่สำเร็จ"
           python -m pipeline fail --run-id "${{ steps.start.outputs.run_id }}" --message "เตรียมข้อมูลไม่สำเร็จ ดู log ใน GitHub Actions"
 
-  model:
+  # 7-day rain at the dams for the heavy-rain switch, the Storm Trigger and the daily rain models: WeatherNext 3
+  # (~0.2 GB of BigQuery a run) and WeatherNext 2 (Open-Meteo, free); when both are missing the switch uses ECMWF.
+  # Its own job: GCP_SA_KEY is a multi-line JSON, and GitHub masks each of its lines ("{" and "}") in every output
+  # of a job that uses it, which blanked prepare's model matrix (no model ran on 16 Nov 2026).
+  rain7:
     needs: prepare
-    if: needs.prepare.outputs.run_id != '' && needs.prepare.outputs.has_models == 'true'
+    if: needs.prepare.outputs.run_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/base.txt
+      - run: pip install -r requirements/base.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: dataset
+      - name: WeatherNext 3 / 2 rain at the dams
+        env:
+          KEY: ${{ secrets.DATA_REPO_TOKEN }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          mkdir -p data && openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in dataset.enc | tar xzf - -C data
+          f=data/forecasting/1-reservoir-inflow/data/raw/wn3_forecast_rain.json
+          python -m pipeline.wn3_rain "$f" || echo "::warning::WN3/WN2 rain not fetched"
+          mkdir -p rain7 && if [ -f "$f" ]; then openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:KEY -in "$f" -out rain7/rain7.enc; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rain7
+          path: rain7
+          if-no-files-found: ignore
+          retention-days: 3
+
+  model:
+    needs: [prepare, rain7]
+    if: ${{ !cancelled() && needs.prepare.outputs.run_id != '' && needs.prepare.outputs.has_models == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -169,10 +198,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dataset
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: rain7
+          path: rain7
       - name: Unpack data
         env:
           KEY: ${{ secrets.DATA_REPO_TOKEN }}
-        run: mkdir -p data && openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in dataset.enc | tar xzf - -C data && rm dataset.enc
+        run: |
+          mkdir -p data && openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in dataset.enc | tar xzf - -C data && rm dataset.enc
+          if [ -f rain7/rain7.enc ]; then openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in rain7/rain7.enc -out data/forecasting/1-reservoir-inflow/data/raw/wn3_forecast_rain.json; fi
       - name: Run ${{ matrix.model }}
         run: python -m pipeline model --run-id "${{ needs.prepare.outputs.run_id }}" --kind "$KIND" --name "${{ matrix.model }}" --sites "${{ matrix.sites }}" --out results
       - name: Pack result (encrypted)
@@ -192,7 +228,7 @@ jobs:
         run: python -m pipeline step --run-id "${{ needs.prepare.outputs.run_id }}" --name "model:${{ matrix.model }}" --status failed --message "งานบน GitHub Actions หยุดกลางทาง"
 
   finish:
-    needs: [prepare, model]
+    needs: [prepare, rain7, model]
     # also when no model had to run (model job skipped): finish then republishes the previous forecast
     # not after a cancel: half a run must not replace the last full result
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.run_id != '' }}
@@ -210,6 +246,11 @@ jobs:
         with:
           name: dataset
       - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: rain7
+          path: rain7
+      - uses: actions/download-artifact@v4
         if: needs.prepare.outputs.has_models == 'true'
         with:
           pattern: result-*
@@ -220,6 +261,7 @@ jobs:
         run: |
           mkdir -p data results
           openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in dataset.enc | tar xzf - -C data
+          if [ -f rain7/rain7.enc ]; then openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in rain7/rain7.enc -out data/forecasting/1-reservoir-inflow/data/raw/wn3_forecast_rain.json; fi
           for f in packs/*/result.enc; do [ -f "$f" ] || continue; openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in "$f" | tar xzf - || true; done
       - name: Error Gate, Combination, storage, publish
         run: python -m pipeline finish --run-id "${{ needs.prepare.outputs.run_id }}" --kind "$KIND" --results results --plan data/plan.json
@@ -228,7 +270,7 @@ jobs:
 
   cancelled:
     # a cancelled run is closed as failed, so HQ stops following it and the Run button works again
-    needs: [prepare, model]
+    needs: [prepare, rain7, model]
     if: ${{ cancelled() && needs.prepare.outputs.run_id != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
