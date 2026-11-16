@@ -3,7 +3,7 @@ name: 'Task 2 · River data (Rayong): history once, then one day at a time'
 # 13 + 16 Nov 2026):
 #   river-hourly-rayong.csv.gz  ThaiWater hourly level/discharge: RAY001, RAY002, RAY004, Z.38, Z.11
 #   dwr-hourly-rayong.csv.gz    DWR telemetry hourly level/rain/flow of the TA17* gauges, incl. TA170203 (city centre)
-#   rain-hourly-era5land-rayong.csv.gz  ERA5-Land hourly rain over the basins (long record for training)
+#   rain-hourly-archive-rayong.csv.gz  Open-Meteo archive (reanalysis) hourly rain over the basins
 # The first run fills the history from `start`; every later run only adds the days after the last stored one.
 on:
   schedule:
@@ -37,7 +37,7 @@ jobs:
             gh release create river-history -R $R --title "Task 2: river data (Rayong)" \
               --notes "Hourly river level, rain and flow of the Rayong gauges (ThaiWater + DWR telemetry), for training Task 2 models. Topped up daily."
           mkdir -p old
-          for f in river-hourly-rayong.csv.gz dwr-hourly-rayong.csv.gz rain-hourly-era5land-rayong.csv.gz; do
+          for f in river-hourly-rayong.csv.gz dwr-hourly-rayong.csv.gz rain-hourly-archive-rayong.csv.gz; do
             gh release download river-history -R $R -p $f -D old 2>/dev/null || echo "no $f yet"
           done
           ls -la old
@@ -49,13 +49,13 @@ jobs:
         run: |
           A=""; [ -f old/dwr-hourly-rayong.csv.gz ] && A="--append old/dwr-hourly-rayong.csv.gz"
           python task2_river_hourly/fetch_dwr_history.py dwr-hourly-rayong.csv.gz --from "$START" --max-minutes 240 $A
-      - name: ERA5-Land hourly rain
+      - name: Hourly rain (Open-Meteo archive)
         run: |
-          A=""; [ -f old/rain-hourly-era5land-rayong.csv.gz ] && A="--append old/rain-hourly-era5land-rayong.csv.gz"
-          python task2_river_hourly/fetch_rain_hourly.py rain-hourly-era5land-rayong.csv.gz --from "$START" $A
+          A=""; [ -f old/rain-hourly-archive-rayong.csv.gz ] && A="--append old/rain-hourly-archive-rayong.csv.gz"
+          python task2_river_hourly/fetch_rain_hourly.py rain-hourly-archive-rayong.csv.gz --from "$START" $A
       - name: Store
         if: always()
         run: |
-          for f in river-hourly-rayong.csv.gz dwr-hourly-rayong.csv.gz rain-hourly-era5land-rayong.csv.gz; do
+          for f in river-hourly-rayong.csv.gz dwr-hourly-rayong.csv.gz rain-hourly-archive-rayong.csv.gz; do
             [ -s $f ] && gh release upload river-history $f --clobber -R $R || echo "skip $f"
           done
