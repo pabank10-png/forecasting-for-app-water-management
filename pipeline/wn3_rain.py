@@ -19,7 +19,11 @@ from pipeline.data_prep import DAMS  # noqa: E402
 
 W, S, EAST, N = 101.0, 12.7, 101.8, 13.2  # box around the 4 dams
 RUN_STEP_H, LAG_H, TRIES = 6, 7, 3
-MAX_BILLED_GB = 5
+# WN3 is partitioned by init DAY and clustered by geography: BigQuery checks maximumBytesBilled against its estimate
+# of the whole day partition (~50-260 GB) though a one-run query bills ~0.2 GB, so a 5 GB cap refused every query
+# (16 Nov 2026). Same cap as the website's WN3 job; a run billing over BILLED_ALARM_GB means pruning stopped working.
+MAX_BILLED_GB = 400
+BILLED_ALARM_GB = 5
 BKK = dt.timezone(dt.timedelta(hours=7))
 
 
@@ -78,6 +82,8 @@ def fetch(first, now=None):
             raise RuntimeError(r["error"].get("message", "")[:200])
         billed += int(r.get("totalBytesBilled", 0))
         rows = r.get("rows", []) if r.get("jobComplete") else []
+        if billed > BILLED_ALARM_GB * 2**30:
+            print(f"::warning::WN3 query billed {billed / 2**30:.1f} GB (expected ~0.2 GB): check the partition filter", flush=True)
         if len(rows) >= 240:  # run published (at least 10 days of hours)
             return {"model": "weathernext3", "run": run.isoformat(), "billed_gb": round(billed / 2**30, 3),
                     "daily": daily(rows, run)}
