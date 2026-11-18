@@ -1,0 +1,38 @@
+name: Recover completed monthly replay
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/monthly-origin-recover.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch already-computed encrypted results (no model execution)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 44235466151 --repo "$GITHUB_REPOSITORY" --pattern 'replay-*' --dir encrypted
+      - name: Re-encrypt results for the user's local archive connection
+        env:
+          KEY: ${{ secrets.DATA_REPO_TOKEN }}
+        run: |
+          mkdir -p result
+          for model in timesfm chronos2; do
+            openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in "encrypted/replay-$model/$model.enc" -out "result/$model.json"
+          done
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in encrypted/replay-input/replay-input.enc | tar xzf - -O forecasting/1-reservoir-inflow/data/csv/lag.csv > result/input-lag.csv
+          openssl rand -base64 32 > /tmp/recovery-key
+          tar czf - -C result . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:/tmp/recovery-key -out replay-recovery.bin
+          openssl pkeyutl -encrypt -pubin -inkey experiments/replay-recovery-public.pem -pkeyopt rsa_padding_mode:oaep -in /tmp/recovery-key -out replay-recovery.key.enc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: replay-local-recovery
+          path: |
+            replay-recovery.bin
+            replay-recovery.key.enc
+          retention-days: 30
