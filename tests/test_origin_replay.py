@@ -44,11 +44,17 @@ class ReplayTests(unittest.TestCase):
             def predict(self,df,horizon):
                 assert pd.isna(df['y'].iloc[-1])
                 return pd.DataFrame({'step':range(1,13),'p10':[0.]*12,'p50':[1.]*12,'p90':[2.]*12})
-        df=pd.DataFrame({'date':pd.date_range('2025-01-31',periods=12,freq='ME'),'y':np.ones(12)})
+        df=pd.DataFrame({'date':pd.date_range('2025-01-31',periods=22,freq='ME'),'y':np.ones(22)})
         rows=replay(df,Constant,'2026-01','2026-11')
         self.assertEqual(len(rows),132)
-        self.assertTrue(all(r['actual'] is None for r in rows))
+        self.assertTrue(all(r['actual'] is None for r in rows if r['target']>'2026-10'))
         self.assertEqual(len({r['origin'] for r in rows}),11)
+
+    def test_incomplete_previous_month_cannot_shift_forecast_origin(self):
+        df=pd.DataFrame({'date':pd.date_range('2025-01-31',periods=22,freq='ME'),
+                         'y':list(np.ones(21))+[np.nan]})
+        with self.assertRaisesRegex(ValueError,'previous month'):
+            replay(df,TrackingModel,'2026-11','2026-11')
 
 
 if __name__=='__main__':unittest.main()

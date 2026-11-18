@@ -34,6 +34,8 @@ def replay(df, make_model, first='2026-01', last='2026-11'):
         history=df.loc[df['date']<start].copy().reset_index(drop=True)
         if history.empty or history['y'].notna().sum()<12:
             raise ValueError(f'Insufficient pre-origin history: {origin}')
+        if history['date'].iloc[-1].to_period('M')!=origin-1 or pd.isna(history['y'].iloc[-1]):
+            raise ValueError(f'Incomplete previous month before {origin}; refresh the dataset')
         # Target-month covariates and inflow must never enter the model, even
         # when the current dataset has those values. Lag columns are unused
         # by these two foundation-model wrappers.

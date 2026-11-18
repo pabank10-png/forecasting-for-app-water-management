@@ -22,7 +22,7 @@ env:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       data_sha: ${{ steps.version.outputs.sha }}
     steps:
@@ -30,9 +30,26 @@ jobs:
         with:
           repository: pabank10-png/flood-intelligence
           token: ${{ secrets.DATA_REPO_TOKEN }}
-          sparse-checkout: forecasting/1-reservoir-inflow/data/csv
+          path: private-data
+          sparse-checkout: forecasting/1-reservoir-inflow
       - id: version
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: echo "sha=$(git -C private-data rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install numpy pandas openpyxl
+      - name: Refresh the prepared dataset once (including completed October)
+        working-directory: private-data/forecasting/1-reservoir-inflow/scripts
+        run: python build_dataset.py > /tmp/replay-dataset.log 2>&1
+      - name: Encrypt the fixed input snapshot
+        env:
+          KEY: ${{ secrets.DATA_REPO_TOKEN }}
+        run: tar czf - -C private-data forecasting/1-reservoir-inflow/data/csv | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:KEY -out replay-input.enc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: replay-input
+          path: replay-input.enc
+          retention-days: 30
 
   replay:
     needs: snapshot
@@ -48,13 +65,13 @@ jobs:
             cache_id: task1_reservoir_monthly__10_chronos2
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          repository: pabank10-png/flood-intelligence
-          token: ${{ secrets.DATA_REPO_TOKEN }}
-          ref: ${{ needs.snapshot.outputs.data_sha }}
-          path: private-data
-          sparse-checkout: forecasting/1-reservoir-inflow/data/csv
+          name: replay-input
+      - name: Unpack the same frozen inputs for both models
+        env:
+          KEY: ${{ secrets.DATA_REPO_TOKEN }}
+        run: mkdir -p private-data && openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in replay-input.enc | tar xzf - -C private-data
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -70,8 +87,8 @@ jobs:
       - name: Replay Jan-Nov origins with existing Champion weights
         env:
           REPLAY_MODEL: ${{ matrix.model }}
+          REPLAY_DATA_SHA: ${{ needs.snapshot.outputs.data_sha }}
         run: |
-          export REPLAY_DATA_SHA="$(git -C private-data rev-parse HEAD)"
           python -m experiments.monthly_origin_replay --model "$REPLAY_MODEL" --out "results/$REPLAY_MODEL.json"
       - name: Encrypt results before uploading to public-repo artifacts
         env:
@@ -110,14 +127,15 @@ jobs:
           for model in timesfm chronos2; do
             openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in "encrypted/$model.enc" -out "$out/$model.json"
           done
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in encrypted/replay-input.enc | tar xzf - -O forecasting/1-reservoir-inflow/data/csv/lag.csv > "$out/input-lag.csv"
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
           root=Path('archive/forecasting/model-reports/origin-replay-2026')/os.environ['GITHUB_RUN_ID']
           manifest={'run_id':os.environ['GITHUB_RUN_ID'],'workflow_url':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",'files':[]}
-          data_shas=set()
+          data_shas=set();input_hashes=set()
           for name,sites in [('timesfm',['DK','KY','NPL']),('chronos2',['PS'])]:
-              p=root/f'{name}.json';a=json.loads(p.read_text());data_shas.add(a['data_sha'])
+              p=root/f'{name}.json';a=json.loads(p.read_text());data_shas.add(a['data_sha']);input_hashes.add(a['input_sha256'])
               assert set(a['sites'])==set(sites)
               for site in sites:
                   for kind in ['champion','climatology']:
@@ -126,7 +144,10 @@ jobs:
                       assert all(r['training_through']<r['origin'] and r['p50'] is not None for r in rows)
               manifest['files'].append({'name':p.name,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
           assert len(data_shas)==1, 'Jobs used different dataset commits'
+          assert len(input_hashes)==1, 'Jobs used different prepared input snapshots'
           manifest['data_sha']=data_shas.pop()
+          manifest['input_sha256']=input_hashes.pop()
+          assert hashlib.sha256((root/'input-lag.csv').read_bytes()).hexdigest()==manifest['input_sha256']
           (root/'manifest.json').write_text(json.dumps(manifest,indent=2))
           (root/'README.md').write_text('Regenerated monthly-origin forecasts, Jan-Nov 2026. Twelve steps per origin, including unknown Actuals. Current prepared history; not vintage website output. No historical Daily Nowcast. Raw Champion and Climatology per dam; THREE is the sum of DK/KY/NPL. See manifest.json for provenance.\n')
           PY
