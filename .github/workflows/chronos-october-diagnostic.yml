@@ -1,0 +1,54 @@
+name: Chronos October factor diagnostic
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/chronos-october-diagnostic.yml']
+permissions:
+  contents: read
+  actions: read
+env:
+  FORECAST_DATA_DIR: ${{ github.workspace }}/input-data/forecasting/1-reservoir-inflow/data/csv
+  OMP_NUM_THREADS: '2'
+  MKL_NUM_THREADS: '2'
+  PYTHONUNBUFFERED: '1'
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements/foundation.txt
+      - run: pip install -r requirements/foundation.txt
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-task1_reservoir_monthly__10_chronos2-v1
+      - name: Download the exact archived replay inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 44235466151 --repo "$GITHUB_REPOSITORY" --name replay-input --dir encrypted
+      - name: Unpack fixed inputs
+        env:
+          KEY: ${{ secrets.DATA_REPO_TOKEN }}
+        run: mkdir -p input-data && openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KEY -in encrypted/replay-input.enc | tar xzf - -C input-data
+      - name: Verify controlled input construction
+        run: PYTHONPATH=. python tests/test_chronos_diagnostic.py
+      - name: Run factor checks with the same Chronos-2 model
+        run: python -m experiments.chronos_october_diagnostic --out result/diagnostic.json
+      - name: Encrypt results for local inspection
+        run: |
+          openssl rand -base64 32 > /tmp/diagnostic-key
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:/tmp/diagnostic-key -in result/diagnostic.json -out diagnostic.bin
+          openssl pkeyutl -encrypt -pubin -inkey experiments/chronos-diagnostic-public.pem -pkeyopt rsa_padding_mode:oaep -in /tmp/diagnostic-key -out diagnostic.key.enc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chronos-october-diagnostic
+          path: |
+            diagnostic.bin
+            diagnostic.key.enc
+          retention-days: 30
