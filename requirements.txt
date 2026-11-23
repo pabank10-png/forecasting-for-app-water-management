@@ -14,3 +14,4 @@ torch>=2.3
 # timesfm                   # TimesFM 2.5
 # uni2ts                    # Moirai
 # pysteps                   # Radar nowcast รุ่น pySTEPS
+# rasterio                  # DTM GEM-15 15 m (common/gem15_dtm.py) สำหรับแผนที่น้ำท่วมและทิศทางน้ำ
