@@ -63,6 +63,28 @@ nc = finish.daily_nowcast("PS", "2026-10-31", {"PS": fc}, True)
 assert nc["seen"] == 20 and nc["daily_forecast"] == 14 and nc["day_average"] == 12 and nc["p50"] == 46, nc
 assert nc["days_left"] == 11 and nc["p10"] < 46 < nc["p90"]
 assert finish.daily_nowcast("PS", "2026-10-31", {}, True) is None  # no daily forecast: monthly stays
+# Champion picked for the tail: its month P50 spread by the day-average shape (days 1-20 average 2, 21-31 3: month 73)
+nc = finish.daily_nowcast("PS", "2026-10-31", {"PS": fc}, True, champion_month=73.0)
+assert nc["day_average"] == 12 and nc["tail_method"] == "champion", nc
+nc = finish.daily_nowcast("PS", "2026-10-31", {"PS": fc}, True, champion_month=146.0)
+assert nc["day_average"] == 24 and nc["p50"] == 58, nc
+
+# Tail choice: past years 1 a day, 2016 2 a day. A champion that knew 2016's level wins the tail; a wrong one loses (29 Feb has no past average)
+hist2 = pd.DataFrame({"date": pd.date_range("2014-01-01", "2016-12-31")})
+hist2["y"] = [2.0 if d.year == 2016 else 1.0 for d in hist2["date"]]
+finish.data_prep.daily = lambda c: hist2
+def bt1(p50):
+    keys = [f"{m.strftime('%Y-%m-%d')}|1" for m in pd.date_range("2015-12-31", "2016-10-31", freq="ME")]
+    return {"key": keys, "actual": [None] * len(keys), "p10": [None] * len(keys), "p90": [None] * len(keys),
+            "p50": [p50(k) for k in keys]}
+days_in = lambda k: (pd.Period(k[:7], "M") + 1).days_in_month
+good = {"x": {"sites": {"PS": {"bt": bt1(lambda k: 2.0 * days_in(k))}}}}
+tc = finish.tail_choice("PS", good, {"champion": "x"})
+assert tc["method"] == "champion" and tc["mae_champion"] < 0.2 and tc["n"] == 33, tc
+bad = {"x": {"sites": {"PS": {"bt": bt1(lambda k: 0.5 * days_in(k))}}}}
+assert finish.tail_choice("PS", bad, {"champion": "x"})["method"] == "day_average"
+assert finish.tail_choice("PS", {}, {"champion": "x"}) is None
+finish.data_prep.daily = lambda c: hist
 print("ok")
 
 # Forecast-rain archive: hourly Previous Runs JSON -> daily rain per source and lead

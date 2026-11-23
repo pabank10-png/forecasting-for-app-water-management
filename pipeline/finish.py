@@ -319,22 +319,79 @@ def _day_average(frame):
     return s.groupby([s["date"].dt.month, s["date"].dt.day])["y"].mean()
 
 
-def daily_nowcast(site, month_end, daily_finals, rain_parts):
+TAIL_STARTS = (8, 15, 22)  # backtest the days of a month after the 7-day forecast, from these days to month end
+
+
+def tail_choice(site, results, choice):
+    """Days of the current month after the 7-day forecast: the past same-day average, or the Task 1 champion's
+    month total spread over the days by the day-average shape, whichever had the lower MAE on those days in the
+    champion's month-1 backtest (user, 2026-11-23: every part uses what won its own backtest). The champion
+    must be >= 2% better to replace the day average (first test, THREE 2016-2020: day average 8.9, monthly
+    models 10.7-11.0). Decided on monthly runs; daily runs carry it in the reused choice."""
+    champ = choice.get("champion")
+    if champ == "ensemble":
+        champ = choice.get("best_single")
+    bt = ((results.get(champ) or {}).get("sites", {}).get(site) or {}).get("bt") if champ else None
+    if not bt:
+        return None
+    frames = {c: data_prep.daily(c).set_index("date")["y"] for c in COMPONENTS.get(site, (site,))}
+    means, err_avg, err_ch = {}, [], []
+    for key, p50 in zip(bt["key"], bt["p50"]):
+        origin, step = key.split("|")
+        if int(step) != 1 or p50 is None:
+            continue
+        month = pd.Period(origin[:7], "M") + 1
+        start, end = month.start_time, month.end_time.normalize()
+        avg_all = {t: 0.0 for t in TAIL_STARTS}
+        act, avg_tail, ok = dict(avg_all), dict(avg_all), True
+        month_avg = 0.0
+        for c, s in frames.items():
+            m = s[(s.index >= start) & (s.index <= end)]
+            if len(m) != end.day or m.isna().any():
+                ok = False
+                break
+            if (c, month.year) not in means:
+                past = s[s.index.year < month.year].dropna()
+                means[(c, month.year)] = past.groupby([past.index.month, past.index.day]).mean()
+            mu = means[(c, month.year)]
+            day_mu = pd.Series([float(mu.get((d.month, d.day), 0.0)) for d in m.index], index=m.index)
+            month_avg += float(day_mu.sum())
+            for t in TAIL_STARTS:
+                act[t] += float(m[m.index.day >= t].sum())
+                avg_tail[t] += float(day_mu[day_mu.index.day >= t].sum())
+        if not ok or month_avg <= 0:
+            continue
+        for t in TAIL_STARTS:
+            err_avg.append(abs(avg_tail[t] - act[t]))
+            err_ch.append(abs(float(p50) * avg_tail[t] / month_avg - act[t]))
+    if not err_avg:
+        return None
+    ma, mc = float(np.mean(err_avg)), float(np.mean(err_ch))
+    return {"method": "champion" if mc < ma * (1 - MARGIN) else "day_average", "model": champ,
+            "mae_day_average": round(ma, 3), "mae_champion": round(mc, 3), "n": len(err_avg),
+            "tail_starts": list(TAIL_STARTS)}
+
+
+def daily_nowcast(site, month_end, daily_finals, rain_parts, champion_month=None):
     """Month total for the current month from daily data (user, 2026-10-29):
     inflow already recorded this month + Task 1B daily forecast for the next days of the month
-    + the past same-day average for days after the 7-day forecast.
-    In the 2016-2020 backtest this beat the monthly models' month forecast whatever the days left
-    (THREE MAE 1.6 vs 20 with <=7 days left, 12.7 vs 24 with 22-31 days left)."""
+    + for days after the 7-day forecast, the past same-day average, or (champion_month given, when tail_choice
+    picked it) the Task 1 champion's month P50 spread over the days by the day-average shape."""
     end = pd.Timestamp(month_end)
     start = end.replace(day=1)
     seen = fc = avg = 0.0
     lo_ratio, hi_ratio = NOWCAST_RATIO["rain" if rain_parts else "average"]
     last_seen = None
-    for c in COMPONENTS.get(site, (site,)):
-        rows = daily_finals.get(c)
-        if not rows:
-            return None
-        f = data_prep.daily(c)
+    comps = COMPONENTS.get(site, (site,))
+    if any(not daily_finals.get(c) for c in comps):
+        return None
+    frames = {c: data_prep.daily(c) for c in comps}
+    means = {c: _day_average(f) for c, f in frames.items()}
+    month_mu = sum(float(means[c].get((d.month, d.day), 0.0)) for c in comps for d in pd.date_range(start, end))
+    scale = champion_month / month_mu if champion_month is not None and month_mu > 0 else 1.0
+    for c in comps:
+        rows = daily_finals[c]
+        f = frames[c]
         month = f[(f["date"] >= start) & (f["date"] <= end)]
         seen += float(month["y"].sum())
         covered = set(month.loc[month["y"].notna(), "date"].dt.strftime("%Y-%m-%d"))
@@ -343,15 +400,16 @@ def daily_nowcast(site, month_end, daily_finals, rain_parts):
             if start.strftime("%Y-%m-%d") <= r["date"] <= end.strftime("%Y-%m-%d") and r["date"] not in covered:
                 fc += r["p50"] or 0.0
                 covered.add(r["date"])
-        mean = _day_average(f)
+        mean = means[c]
         for d in pd.date_range(start, end):
             if d.strftime("%Y-%m-%d") not in covered:
-                avg += float(mean.get((d.month, d.day), 0.0))
+                avg += float(mean.get((d.month, d.day), 0.0)) * scale
     p50 = seen + fc + avg
     rest = p50 - seen
     return {"date": end.strftime("%Y-%m-%d"), "p10": round(seen + rest * lo_ratio, 4), "p50": round(p50, 4),
             "p90": round(seen + rest * hi_ratio, 4), "seen": round(seen, 4), "daily_forecast": round(fc, 4),
-            "day_average": round(avg, 4), "seen_until": last_seen, "days_left": int((end - pd.Timestamp(last_seen)).days)
+            "day_average": round(avg, 4), "tail_method": "champion" if champion_month is not None
+            else "day_average", "seen_until": last_seen, "days_left": int((end - pd.Timestamp(last_seen)).days)
             if last_seen else end.day}
 
 
@@ -365,8 +423,11 @@ def apply_nowcast(out):
         fin = entry.get("final")
         if not fin:
             continue
+        tail = (out["choice"].get(plan.T1, {}).get(site) or {}).get("tail") or {}
+        champ_month = fin[0]["p50"] if tail.get("method") == "champion" else None
         try:
-            nc = daily_nowcast(site, fin[0]["date"], finals, all(c in rain for c in COMPONENTS.get(site, (site,))))
+            nc = daily_nowcast(site, fin[0]["date"], finals, all(c in rain for c in COMPONENTS.get(site, (site,))),
+                               champ_month)
         except Exception as e:  # noqa: BLE001 - the monthly forecast stays if the daily data is not usable
             entry["nowcast_error"] = f"{type(e).__name__}: {e}"[:200]
             continue
@@ -450,6 +511,10 @@ def summarise(results, kind, previous_summary):
             if task == plan.T1:
                 if kind == "monthly" and choice.get("champion"):
                     choice["far"] = far_months(site, results, choice)
+                    try:
+                        choice["tail"] = tail_choice(site, results, choice)
+                    except Exception as e:  # noqa: BLE001 - the day average stays
+                        choice["tail"] = {"method": "day_average", "error": f"{type(e).__name__}: {e}"[:200]}
                 fin = apply_far(fin, results, site, choice.get("far"))
             heavy = None
             if task == plan.T1B:
