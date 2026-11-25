@@ -20,7 +20,7 @@ jobs:
   # Calling it here too ran it 3 times an hour and used up the free Actions minutes (12 Nov 2026).
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
         with:
